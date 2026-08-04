@@ -6,9 +6,9 @@ export interface Student {
   created_at: string;
 }
 
-export type Difficulty = "하" | "중" | "상";
+export type Difficulty = "하" | "중" | "상" | "최상";
 
-export const DIFFICULTIES: Difficulty[] = ["하", "중", "상"];
+export const DIFFICULTIES: Difficulty[] = ["하", "중", "상", "최상"];
 
 export interface WrongAnswer {
   id: string;
