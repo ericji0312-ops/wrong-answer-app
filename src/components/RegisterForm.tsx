@@ -7,7 +7,8 @@ import {
   type ClassifyState,
   type SaveWrongAnswerState,
 } from "@/app/actions/wrongAnswers";
-import type { Student, UnitTag } from "@/types/domain";
+import type { Difficulty, Student, UnitTag } from "@/types/domain";
+import { DIFFICULTIES } from "@/types/domain";
 
 const initialClassifyState: ClassifyState = {};
 const initialSaveState: SaveWrongAnswerState = {};
@@ -24,6 +25,7 @@ export default function RegisterForm({
   const [studentId, setStudentId] = useState(students[0]?.id ?? "");
   const [unit, setUnit] = useState("");
   const [problemType, setProblemType] = useState("");
+  const [difficulty, setDifficulty] = useState<Difficulty>("중");
   const [fileKey, setFileKey] = useState(0);
   const [savedImageUrl, setSavedImageUrl] = useState<string | null>(null);
 
@@ -40,6 +42,7 @@ export default function RegisterForm({
     if (classifyState.result) {
       setUnit(classifyState.result.unit);
       setProblemType(classifyState.result.problem_type);
+      setDifficulty(classifyState.result.difficulty);
     }
   }, [classifyState.result]);
 
@@ -144,6 +147,28 @@ export default function RegisterForm({
                 <option key={p} value={p} />
               ))}
             </datalist>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block font-medium">난이도</label>
+            <input type="hidden" name="difficulty" value={difficulty} />
+            <div className="flex gap-2">
+              {DIFFICULTIES.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDifficulty(d)}
+                  className={
+                    "flex-1 rounded border px-3 py-1 " +
+                    (difficulty === d
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "hover:bg-gray-50")
+                  }
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
 
           <button

@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { supabase, WRONG_ANSWER_BUCKET } from "@/lib/supabaseClient";
 import { classifyWrongAnswer } from "@/lib/gemini";
 import { getUnitTags } from "@/app/actions/unitTags";
-import type { ClassificationResult, WrongAnswer } from "@/types/domain";
+import type { ClassificationResult, Difficulty, WrongAnswer } from "@/types/domain";
+import { DIFFICULTIES } from "@/types/domain";
 
 export interface ClassifyState {
   error?: string;
@@ -70,6 +71,7 @@ export async function saveWrongAnswer(
   const imageUrl = formData.get("imageUrl");
   const unit = formData.get("unit");
   const problemType = formData.get("problemType");
+  const difficulty = formData.get("difficulty");
   const rawResponse = formData.get("rawResponse");
 
   if (typeof studentId !== "string" || studentId.length === 0) {
@@ -84,12 +86,16 @@ export async function saveWrongAnswer(
   if (typeof problemType !== "string" || problemType.trim().length === 0) {
     return { error: "세부 유형을 입력해주세요." };
   }
+  if (typeof difficulty !== "string" || !DIFFICULTIES.includes(difficulty as Difficulty)) {
+    return { error: "난이도를 선택해주세요." };
+  }
 
   const { error } = await supabase.from("wrong_answers").insert({
     student_id: studentId,
     image_url: imageUrl,
     unit: unit.trim(),
     problem_type: problemType.trim(),
+    difficulty,
     ai_raw_response: typeof rawResponse === "string" ? rawResponse : null,
     is_verified: true,
   });
@@ -114,17 +120,21 @@ export async function getWrongAnswers(studentId: string): Promise<WrongAnswer[]>
 export async function updateWrongAnswerClassification(
   id: string,
   unit: string,
-  problemType: string
+  problemType: string,
+  difficulty: Difficulty
 ) {
   const trimmedUnit = unit.trim();
   const trimmedType = problemType.trim();
   if (!trimmedUnit || !trimmedType) {
     throw new Error("단원과 세부 유형을 입력해주세요.");
   }
+  if (!DIFFICULTIES.includes(difficulty)) {
+    throw new Error("난이도를 선택해주세요.");
+  }
 
   const { error } = await supabase
     .from("wrong_answers")
-    .update({ unit: trimmedUnit, problem_type: trimmedType })
+    .update({ unit: trimmedUnit, problem_type: trimmedType, difficulty })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

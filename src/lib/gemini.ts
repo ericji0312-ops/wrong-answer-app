@@ -9,10 +9,14 @@ if (!apiKey) {
 
 const ai = new GoogleGenAI({ apiKey });
 
-const BASE_PROMPT = `이 수학 문제 사진을 보고 (1) 큰 단원명 (2) 세부 문제 유형을 분류해줘.
+const BASE_PROMPT = `이 수학 문제 사진을 보고 (1) 큰 단원명 (2) 세부 문제 유형 (3) 난이도를 분류해줘.
 - 단원명은 교과서 대단원 수준(예: 이차함수, 수열의 극한)으로 간결하게.
 - 세부 유형은 실제로 이 문제가 다루는 구체적인 스킬/개념(예: 이차함수의 최댓값·최솟값 활용)으로 작성해줘.
-- 문제 사진이 아니거나 내용을 알아볼 수 없으면 unit과 problem_type을 "분류 불가"로 답해줘.`;
+- 난이도는 계산 복잡도와 개념 응용 정도를 기준으로 "하"/"중"/"상" 중 하나로 판단해줘.
+  - 하: 공식/개념을 한 단계만 적용하면 풀리는 기본 문제.
+  - 중: 두세 단계를 조합하거나 계산이 다소 복잡한 문제.
+  - 상: 여러 개념을 함께 응용하거나 계산·논리 전개가 긴 문제.
+- 문제 사진이 아니거나 내용을 알아볼 수 없으면 unit과 problem_type을 "분류 불가"로, difficulty는 "중"으로 답해줘.`;
 
 function buildPrompt(allowedTags: UnitTag[]): string {
   if (allowedTags.length === 0) return BASE_PROMPT;
@@ -59,8 +63,9 @@ export async function classifyWrongAnswer(
         properties: {
           unit: { type: Type.STRING },
           problem_type: { type: Type.STRING },
+          difficulty: { type: Type.STRING, enum: ["하", "중", "상"] },
         },
-        required: ["unit", "problem_type"],
+        required: ["unit", "problem_type", "difficulty"],
       },
     },
   });

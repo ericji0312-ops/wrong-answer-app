@@ -65,3 +65,15 @@ create table unit_tags (
 );
 
 create index on unit_tags (unit);
+
+-- unit_tags는 이 Supabase 프로젝트 기본값으로 RLS가 켜진 채 생성됐다. 나머지 테이블과
+-- 동일하게 anon key로 자유롭게 읽기/쓰기 하도록 꺼준다.
+alter table unit_tags disable row level security;
+
+-- ============================================================
+-- 마이그레이션: 오답 난이도 (하/중/상) — AI가 계산 복잡도·개념 응용 정도를 보고 분류
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+-- ============================================================
+
+alter table wrong_answers
+  add column if not exists difficulty text;

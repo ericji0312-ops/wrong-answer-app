@@ -6,7 +6,8 @@ import {
   updateWrongAnswerClassification,
 } from "@/app/actions/wrongAnswers";
 import BarList from "@/components/BarList";
-import type { Student, UnitTag, WrongAnswer } from "@/types/domain";
+import type { Difficulty, Student, UnitTag, WrongAnswer } from "@/types/domain";
+import { DIFFICULTIES } from "@/types/domain";
 
 type Period = "all" | "1m";
 
@@ -66,6 +67,7 @@ export default function Dashboard({
   const [editing, setEditing] = useState(false);
   const [editUnit, setEditUnit] = useState("");
   const [editProblemType, setEditProblemType] = useState("");
+  const [editDifficulty, setEditDifficulty] = useState<Difficulty>("중");
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -74,6 +76,7 @@ export default function Dashboard({
     setEditing(false);
     setEditUnit(item.unit);
     setEditProblemType(item.problem_type);
+    setEditDifficulty(item.difficulty ?? "중");
     setEditError(null);
   }
 
@@ -82,11 +85,21 @@ export default function Dashboard({
     setEditSaving(true);
     setEditError(null);
     try {
-      await updateWrongAnswerClassification(previewItem.id, editUnit, editProblemType);
+      await updateWrongAnswerClassification(
+        previewItem.id,
+        editUnit,
+        editProblemType,
+        editDifficulty
+      );
       setWrongAnswers((prev) =>
         prev.map((w) =>
           w.id === previewItem.id
-            ? { ...w, unit: editUnit.trim(), problem_type: editProblemType.trim() }
+            ? {
+                ...w,
+                unit: editUnit.trim(),
+                problem_type: editProblemType.trim(),
+                difficulty: editDifficulty,
+              }
             : w
         )
       );
@@ -203,12 +216,19 @@ export default function Dashboard({
                       onClick={() => openPreview(w)}
                       className="space-y-1 text-left"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={w.image_url}
-                        alt={`${w.unit} - ${w.problem_type}`}
-                        className="w-full aspect-square object-cover rounded border cursor-pointer"
-                      />
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={w.image_url}
+                          alt={`${w.unit} - ${w.problem_type}`}
+                          className="w-full aspect-square object-cover rounded border cursor-pointer"
+                        />
+                        {w.difficulty && (
+                          <span className="absolute top-1 right-1 rounded-full bg-black/60 text-white px-1.5 py-0.5 text-[10px]">
+                            {w.difficulty}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-500">
                         {new Date(w.recorded_at).toLocaleDateString("ko-KR")}
                       </p>
@@ -272,6 +292,11 @@ export default function Dashboard({
               <div className="flex items-center justify-between gap-3">
                 <p className="font-medium">
                   {previewItem.unit} · {previewItem.problem_type}
+                  {previewItem.difficulty && (
+                    <span className="ml-2 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs align-middle">
+                      난이도 {previewItem.difficulty}
+                    </span>
+                  )}
                 </p>
                 <button
                   onClick={() => setEditing(true)}
@@ -311,6 +336,26 @@ export default function Dashboard({
                       <option key={p} value={p} />
                     ))}
                   </datalist>
+                </div>
+                <div className="space-y-1">
+                  <label className="block font-medium">난이도</label>
+                  <div className="flex gap-2">
+                    {DIFFICULTIES.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setEditDifficulty(d)}
+                        className={
+                          "flex-1 rounded border px-3 py-1 " +
+                          (editDifficulty === d
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "hover:bg-gray-50")
+                        }
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {editError && <p className="text-red-600">{editError}</p>}
                 <div className="flex gap-2">
