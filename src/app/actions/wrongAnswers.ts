@@ -111,6 +111,26 @@ export async function getWrongAnswers(studentId: string): Promise<WrongAnswer[]>
   return data ?? [];
 }
 
+export async function updateWrongAnswerClassification(
+  id: string,
+  unit: string,
+  problemType: string
+) {
+  const trimmedUnit = unit.trim();
+  const trimmedType = problemType.trim();
+  if (!trimmedUnit || !trimmedType) {
+    throw new Error("단원과 세부 유형을 입력해주세요.");
+  }
+
+  const { error } = await supabase
+    .from("wrong_answers")
+    .update({ unit: trimmedUnit, problem_type: trimmedType })
+    .eq("id", id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard");
+}
+
 export async function getAllWrongAnswers(): Promise<WrongAnswer[]> {
   const { data, error } = await supabase
     .from("wrong_answers")

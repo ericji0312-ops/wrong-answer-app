@@ -1,7 +1,8 @@
 import { getStudents } from "@/app/actions/students";
+import { getUnitTags } from "@/app/actions/unitTags";
 import Dashboard from "@/components/Dashboard";
 
 export default async function DashboardPage() {
-  const students = await getStudents();
-  return <Dashboard students={students} />;
+  const [students, unitTags] = await Promise.all([getStudents(), getUnitTags()]);
+  return <Dashboard students={students} unitTags={unitTags} />;
 }

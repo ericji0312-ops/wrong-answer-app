@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getWrongAnswers } from "@/app/actions/wrongAnswers";
+import {
+  getWrongAnswers,
+  updateWrongAnswerClassification,
+} from "@/app/actions/wrongAnswers";
 import BarList from "@/components/BarList";
-import type { Student, WrongAnswer } from "@/types/domain";
+import type { Student, UnitTag, WrongAnswer } from "@/types/domain";
 
 type Period = "all" | "1m";
 
@@ -44,13 +47,57 @@ function groupByCategory(items: WrongAnswer[]): FolderGroup[] {
   return [...map.values()].sort((a, b) => b.items.length - a.items.length);
 }
 
-export default function Dashboard({ students }: { students: Student[] }) {
+export default function Dashboard({
+  students,
+  unitTags,
+}: {
+  students: Student[];
+  unitTags: UnitTag[];
+}) {
+  const units = [...new Set(unitTags.map((t) => t.unit))];
+  const problemTypes = [...new Set(unitTags.map((t) => t.problem_type))];
+
   const [studentId, setStudentId] = useState(students[0]?.id ?? "");
   const [period, setPeriod] = useState<Period>("all");
   const [wrongAnswers, setWrongAnswers] = useState<WrongAnswer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
+  const [previewItem, setPreviewItem] = useState<WrongAnswer | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editUnit, setEditUnit] = useState("");
+  const [editProblemType, setEditProblemType] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  function openPreview(item: WrongAnswer) {
+    setPreviewItem(item);
+    setEditing(false);
+    setEditUnit(item.unit);
+    setEditProblemType(item.problem_type);
+    setEditError(null);
+  }
+
+  async function saveClassification() {
+    if (!previewItem) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await updateWrongAnswerClassification(previewItem.id, editUnit, editProblemType);
+      setWrongAnswers((prev) =>
+        prev.map((w) =>
+          w.id === previewItem.id
+            ? { ...w, unit: editUnit.trim(), problem_type: editProblemType.trim() }
+            : w
+        )
+      );
+      setPreviewItem(null);
+      setOpenFolder(null);
+    } catch {
+      setEditError("저장 중 오류가 발생했습니다.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!studentId) {
@@ -153,7 +200,7 @@ export default function Dashboard({ students }: { students: Student[] }) {
                   {activeFolder.items.map((w) => (
                     <button
                       key={w.id}
-                      onClick={() => setPreviewUrl(w.image_url)}
+                      onClick={() => openPreview(w)}
                       className="space-y-1 text-left"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -205,17 +252,85 @@ export default function Dashboard({ students }: { students: Student[] }) {
         </>
       )}
 
-      {previewUrl && (
+      {previewItem && (
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50"
-          onClick={() => setPreviewUrl(null)}
+          onClick={() => setPreviewItem(null)}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={previewUrl}
-            alt="오답 원본"
-            className="max-h-full max-w-full rounded shadow-lg"
-          />
+          <div
+            className="bg-white rounded-lg shadow-lg max-w-lg w-full max-h-full overflow-y-auto p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewItem.image_url}
+              alt="오답 원본"
+              className="max-h-96 w-full object-contain rounded border"
+            />
+
+            {!editing ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium">
+                  {previewItem.unit} · {previewItem.problem_type}
+                </p>
+                <button
+                  onClick={() => setEditing(true)}
+                  className="text-blue-600 hover:underline shrink-0"
+                >
+                  분류 수정
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <label className="block font-medium">단원</label>
+                  <input
+                    type="text"
+                    value={editUnit}
+                    onChange={(e) => setEditUnit(e.target.value)}
+                    list="dashboard-unit-options"
+                    className="border rounded px-2 py-1 w-full"
+                  />
+                  <datalist id="dashboard-unit-options">
+                    {units.map((u) => (
+                      <option key={u} value={u} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="space-y-1">
+                  <label className="block font-medium">세부 유형</label>
+                  <input
+                    type="text"
+                    value={editProblemType}
+                    onChange={(e) => setEditProblemType(e.target.value)}
+                    list="dashboard-problem-type-options"
+                    className="border rounded px-2 py-1 w-full"
+                  />
+                  <datalist id="dashboard-problem-type-options">
+                    {problemTypes.map((p) => (
+                      <option key={p} value={p} />
+                    ))}
+                  </datalist>
+                </div>
+                {editError && <p className="text-red-600">{editError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveClassification}
+                    disabled={editSaving}
+                    className="flex-1 bg-blue-600 text-white rounded px-4 py-2 hover:bg-blue-700 disabled:opacity-40"
+                  >
+                    {editSaving ? "저장 중..." : "저장"}
+                  </button>
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="flex-1 border rounded px-4 py-2 hover:bg-gray-50"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
