@@ -23,6 +23,16 @@ function countBy(items: WrongAnswer[], key: "unit" | "problem_type") {
     .sort((a, b) => b.count - a.count);
 }
 
+function countByDifficulty(items: WrongAnswer[]) {
+  const counts = new Map<Difficulty, number>();
+  for (const item of items) {
+    if (!item.difficulty) continue;
+    counts.set(item.difficulty, (counts.get(item.difficulty) ?? 0) + 1);
+  }
+  // 개수 순이 아니라 하→중→상→최상 고정 순서로 보여준다 (난이도는 랭킹이 아니라 척도이므로).
+  return DIFFICULTIES.map((d) => ({ label: d, count: counts.get(d) ?? 0 }));
+}
+
 interface FolderGroup {
   key: string;
   unit: string;
@@ -160,6 +170,7 @@ export default function Dashboard({
 
   const unitCounts = useMemo(() => countBy(filtered, "unit"), [filtered]);
   const typeCounts = useMemo(() => countBy(filtered, "problem_type"), [filtered]);
+  const difficultyCounts = useMemo(() => countByDifficulty(filtered), [filtered]);
   const folders = useMemo(() => groupByCategory(filtered), [filtered]);
   const activeFolder = folders.find((f) => f.key === openFolder) ?? null;
 
@@ -213,6 +224,11 @@ export default function Dashboard({
           <section className="space-y-2">
             <h2 className="font-semibold">유형별 오답 순위</h2>
             <BarList items={typeCounts} />
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="font-semibold">난이도별 오답 개수</h2>
+            <BarList items={difficultyCounts} />
           </section>
 
           <section className="space-y-2">
