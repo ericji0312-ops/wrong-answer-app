@@ -141,6 +141,20 @@ export async function updateWrongAnswerClassification(
   revalidatePath("/dashboard");
 }
 
+export async function reclassifyWrongAnswer(
+  imageUrl: string
+): Promise<{ result: ClassificationResult; rawResponse: string }> {
+  const imageResponse = await fetch(imageUrl);
+  if (!imageResponse.ok) {
+    throw new Error("원본 사진을 불러오지 못했습니다.");
+  }
+  const mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
+  const buffer = Buffer.from(await imageResponse.arrayBuffer());
+
+  const allowedTags = await getUnitTags();
+  return classifyWrongAnswer(buffer, mimeType, allowedTags);
+}
+
 export async function getAllWrongAnswers(): Promise<WrongAnswer[]> {
   const { data, error } = await supabase
     .from("wrong_answers")

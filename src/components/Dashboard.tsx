@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   getWrongAnswers,
+  reclassifyWrongAnswer,
   updateWrongAnswerClassification,
 } from "@/app/actions/wrongAnswers";
 import BarList from "@/components/BarList";
@@ -70,6 +71,8 @@ export default function Dashboard({
   const [editDifficulty, setEditDifficulty] = useState<Difficulty>("중");
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [reclassifying, setReclassifying] = useState(false);
+  const [reclassifyError, setReclassifyError] = useState<string | null>(null);
 
   function openPreview(item: WrongAnswer) {
     setPreviewItem(item);
@@ -78,6 +81,24 @@ export default function Dashboard({
     setEditProblemType(item.problem_type);
     setEditDifficulty(item.difficulty ?? "중");
     setEditError(null);
+    setReclassifyError(null);
+  }
+
+  async function requestReclassify() {
+    if (!previewItem) return;
+    setReclassifying(true);
+    setReclassifyError(null);
+    try {
+      const { result } = await reclassifyWrongAnswer(previewItem.image_url);
+      setEditUnit(result.unit);
+      setEditProblemType(result.problem_type);
+      setEditDifficulty(result.difficulty);
+      setEditing(true);
+    } catch {
+      setReclassifyError("AI 재분류 중 오류가 발생했습니다.");
+    } finally {
+      setReclassifying(false);
+    }
   }
 
   async function saveClassification() {
@@ -289,21 +310,31 @@ export default function Dashboard({
             />
 
             {!editing ? (
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-medium">
-                  {previewItem.unit} · {previewItem.problem_type}
-                  {previewItem.difficulty && (
-                    <span className="ml-2 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs align-middle">
-                      난이도 {previewItem.difficulty}
-                    </span>
-                  )}
-                </p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium">
+                    {previewItem.unit} · {previewItem.problem_type}
+                    {previewItem.difficulty && (
+                      <span className="ml-2 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs align-middle">
+                        난이도 {previewItem.difficulty}
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="text-blue-600 hover:underline shrink-0"
+                  >
+                    분류 수정
+                  </button>
+                </div>
                 <button
-                  onClick={() => setEditing(true)}
-                  className="text-blue-600 hover:underline shrink-0"
+                  onClick={requestReclassify}
+                  disabled={reclassifying}
+                  className="w-full border rounded px-4 py-2 hover:bg-gray-50 disabled:opacity-40"
                 >
-                  분류 수정
+                  {reclassifying ? "AI 재분류 중..." : "AI 재분류 요청"}
                 </button>
+                {reclassifyError && <p className="text-red-600">{reclassifyError}</p>}
               </div>
             ) : (
               <div className="space-y-2">
