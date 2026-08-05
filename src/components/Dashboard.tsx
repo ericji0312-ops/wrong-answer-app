@@ -7,6 +7,7 @@ import {
   updateWrongAnswerClassification,
 } from "@/app/actions/wrongAnswers";
 import BarList from "@/components/BarList";
+import DifficultyTypeHeatmap from "@/components/DifficultyTypeHeatmap";
 import type { Difficulty, Student, UnitTag, WrongAnswer } from "@/types/domain";
 import { DIFFICULTIES } from "@/types/domain";
 
@@ -229,6 +230,11 @@ export default function Dashboard({
           <section className="space-y-2">
             <h2 className="font-semibold">난이도별 오답 개수</h2>
             <BarList items={difficultyCounts} />
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="font-semibold">난이도별 취약 유형</h2>
+            <DifficultyTypeHeatmap items={filtered} />
           </section>
 
           <section className="space-y-2">
