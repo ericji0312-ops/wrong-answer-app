@@ -1,15 +1,18 @@
+import { Fragment } from "react";
+
 export interface BarListItem {
   label: string;
   count: number;
 }
 
 // 단원/유형별 오답 개수 — 단일 시리즈 랭킹 막대 (dataviz 팔레트 slot-1 blue 사용).
+// 그리드 레이아웃이라 라벨 열 너비가 가장 긴 라벨 기준으로 모든 행에서 동일하게
+// 맞춰지고, 그 결과 막대의 시작점이 행마다 정렬된다 (flex 행별 독립 폭과 차이점).
 export default function BarList({ items }: { items: BarListItem[] }) {
   const max = Math.max(1, ...items.map((i) => i.count));
 
   return (
     <div
-      className="space-y-2"
       style={
         {
           "--bar-color": "#2a78d6",
@@ -22,12 +25,15 @@ export default function BarList({ items }: { items: BarListItem[] }) {
         }
       `}</style>
       {items.length === 0 && <p className="text-gray-500 text-sm">데이터가 없습니다.</p>}
-      <div className="overflow-x-auto space-y-2">
-        {items.map((item) => (
-          <div key={item.label} className="flex items-center gap-3 w-max min-w-full">
-            <div className="shrink-0 whitespace-nowrap text-sm">{item.label}</div>
-            <div className="flex-1 flex items-center gap-2 min-w-40">
-              <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+      <div className="overflow-x-auto">
+        <div
+          className="grid gap-x-3 gap-y-2 items-center w-max min-w-full"
+          style={{ gridTemplateColumns: "max-content minmax(10rem, 1fr) max-content" }}
+        >
+          {items.map((item) => (
+            <Fragment key={item.label}>
+              <div className="whitespace-nowrap text-sm">{item.label}</div>
+              <div className="bg-gray-100 rounded-full h-4 overflow-hidden">
                 <div
                   className="bar-list-fill h-4 rounded-full transition-all"
                   style={{
@@ -36,12 +42,12 @@ export default function BarList({ items }: { items: BarListItem[] }) {
                   }}
                 />
               </div>
-              <span className="w-6 text-right text-sm font-medium tabular-nums">
+              <span className="text-sm font-medium tabular-nums justify-self-end">
                 {item.count}
               </span>
-            </div>
-          </div>
-        ))}
+            </Fragment>
+          ))}
+        </div>
       </div>
     </div>
   );
