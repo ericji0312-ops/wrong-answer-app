@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  deleteWrongAnswer,
   getWrongAnswers,
   reclassifyWrongAnswer,
   updateWrongAnswerClassification,
@@ -84,6 +85,9 @@ export default function Dashboard({
   const [editError, setEditError] = useState<string | null>(null);
   const [reclassifying, setReclassifying] = useState(false);
   const [reclassifyError, setReclassifyError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function openPreview(item: WrongAnswer) {
     setPreviewItem(item);
@@ -93,6 +97,24 @@ export default function Dashboard({
     setEditDifficulty(item.difficulty ?? "중");
     setEditError(null);
     setReclassifyError(null);
+    setConfirmDelete(false);
+    setDeleteError(null);
+  }
+
+  async function handleDelete() {
+    if (!previewItem) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteWrongAnswer(previewItem.id, previewItem.image_url);
+      setWrongAnswers((prev) => prev.filter((w) => w.id !== previewItem.id));
+      setPreviewItem(null);
+      setConfirmDelete(false);
+    } catch {
+      setDeleteError("삭제 중 오류가 발생했습니다.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function requestReclassify() {
@@ -367,6 +389,36 @@ export default function Dashboard({
                   {reclassifying ? "AI 재분류 중..." : "AI 재분류 요청"}
                 </button>
                 {reclassifyError && <p className="text-red-600">{reclassifyError}</p>}
+
+                {confirmDelete ? (
+                  <div className="space-y-2 border border-red-200 bg-red-50 rounded p-2">
+                    <p className="text-red-700">이 오답 기록을 삭제할까요? 되돌릴 수 없습니다.</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDelete}
+                        disabled={deleting}
+                        className="flex-1 bg-red-600 text-white rounded px-4 py-2 hover:bg-red-700 disabled:opacity-40"
+                      >
+                        {deleting ? "삭제 중..." : "삭제"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        disabled={deleting}
+                        className="flex-1 border rounded px-4 py-2 hover:bg-gray-50"
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="w-full border border-red-200 text-red-600 rounded px-4 py-2 hover:bg-red-50"
+                  >
+                    삭제
+                  </button>
+                )}
+                {deleteError && <p className="text-red-600">{deleteError}</p>}
               </div>
             ) : (
               <div className="space-y-2">

@@ -158,6 +158,20 @@ export async function updateWrongAnswerClassification(
   revalidatePath("/dashboard");
 }
 
+export async function deleteWrongAnswer(id: string, imageUrl: string) {
+  const { error } = await supabase.from("wrong_answers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  const marker = `/${WRONG_ANSWER_BUCKET}/`;
+  const markerIndex = imageUrl.indexOf(marker);
+  if (markerIndex !== -1) {
+    const path = imageUrl.slice(markerIndex + marker.length);
+    await supabase.storage.from(WRONG_ANSWER_BUCKET).remove([path]);
+  }
+
+  revalidatePath("/dashboard");
+}
+
 export async function reclassifyWrongAnswer(
   imageUrl: string
 ): Promise<{ result: ClassificationResult; rawResponse: string }> {
