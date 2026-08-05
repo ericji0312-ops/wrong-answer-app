@@ -88,8 +88,7 @@ export default function DifficultyTypeHeatmap({ items }: { items: WrongAnswer[] 
                   <tr key={problemType}>
                     <th
                       scope="row"
-                      className="text-left text-xs font-normal pr-2 max-w-[9rem] truncate align-middle"
-                      title={problemType}
+                      className="text-left text-xs font-normal pr-2 whitespace-nowrap align-middle"
                     >
                       {problemType}
                     </th>

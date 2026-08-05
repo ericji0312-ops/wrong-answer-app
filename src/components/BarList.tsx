@@ -22,27 +22,27 @@ export default function BarList({ items }: { items: BarListItem[] }) {
         }
       `}</style>
       {items.length === 0 && <p className="text-gray-500 text-sm">데이터가 없습니다.</p>}
-      {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-3">
-          <div className="w-32 shrink-0 truncate text-sm" title={item.label}>
-            {item.label}
-          </div>
-          <div className="flex-1 flex items-center gap-2">
-            <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-              <div
-                className="bar-list-fill h-4 rounded-full transition-all"
-                style={{
-                  width: `${(item.count / max) * 100}%`,
-                  background: "var(--bar-color)",
-                }}
-              />
+      <div className="overflow-x-auto space-y-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-3 w-max min-w-full">
+            <div className="shrink-0 whitespace-nowrap text-sm">{item.label}</div>
+            <div className="flex-1 flex items-center gap-2 min-w-40">
+              <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+                <div
+                  className="bar-list-fill h-4 rounded-full transition-all"
+                  style={{
+                    width: `${(item.count / max) * 100}%`,
+                    background: "var(--bar-color)",
+                  }}
+                />
+              </div>
+              <span className="w-6 text-right text-sm font-medium tabular-nums">
+                {item.count}
+              </span>
             </div>
-            <span className="w-6 text-right text-sm font-medium tabular-nums">
-              {item.count}
-            </span>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
