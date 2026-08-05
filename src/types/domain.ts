@@ -18,6 +18,7 @@ export interface WrongAnswer {
   problem_type: string;
   difficulty: Difficulty | null;
   ai_raw_response: string | null;
+  analysis_points: string[] | null;
   is_verified: boolean;
   recorded_at: string;
 }

@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { supabase, WRONG_ANSWER_BUCKET } from "@/lib/supabaseClient";
-import { classifyWrongAnswer } from "@/lib/gemini";
+import { analyzeWrongAnswer, classifyWrongAnswer } from "@/lib/gemini";
 import { getUnitTags } from "@/app/actions/unitTags";
 import type { ClassificationResult, Difficulty, WrongAnswer } from "@/types/domain";
 import { DIFFICULTIES } from "@/types/domain";
@@ -73,6 +73,7 @@ export async function saveWrongAnswer(
   const problemType = formData.get("problemType");
   const difficulty = formData.get("difficulty");
   const rawResponse = formData.get("rawResponse");
+  const analysisPointsRaw = formData.get("analysisPoints");
 
   if (typeof studentId !== "string" || studentId.length === 0) {
     return { error: "학생을 선택해주세요." };
@@ -90,6 +91,21 @@ export async function saveWrongAnswer(
     return { error: "난이도를 선택해주세요." };
   }
 
+  let analysisPoints: string[] | null = null;
+  if (typeof analysisPointsRaw === "string" && analysisPointsRaw.length > 0) {
+    try {
+      const parsed = JSON.parse(analysisPointsRaw);
+      if (Array.isArray(parsed)) {
+        const points = parsed.filter(
+          (p): p is string => typeof p === "string" && p.trim().length > 0
+        );
+        analysisPoints = points.length > 0 ? points : null;
+      }
+    } catch {
+      analysisPoints = null;
+    }
+  }
+
   const { error } = await supabase.from("wrong_answers").insert({
     student_id: studentId,
     image_url: imageUrl,
@@ -97,6 +113,7 @@ export async function saveWrongAnswer(
     problem_type: problemType.trim(),
     difficulty,
     ai_raw_response: typeof rawResponse === "string" ? rawResponse : null,
+    analysis_points: analysisPoints,
     is_verified: true,
   });
 
@@ -153,6 +170,19 @@ export async function reclassifyWrongAnswer(
 
   const allowedTags = await getUnitTags();
   return classifyWrongAnswer(buffer, mimeType, allowedTags);
+}
+
+export async function analyzeWrongAnswerDeep(
+  imageUrl: string
+): Promise<{ points: string[]; rawResponse: string }> {
+  const imageResponse = await fetch(imageUrl);
+  if (!imageResponse.ok) {
+    throw new Error("원본 사진을 불러오지 못했습니다.");
+  }
+  const mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
+  const buffer = Buffer.from(await imageResponse.arrayBuffer());
+
+  return analyzeWrongAnswer(buffer, mimeType);
 }
 
 export async function getAllWrongAnswers(): Promise<WrongAnswer[]> {

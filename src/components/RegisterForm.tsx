@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import {
+  analyzeWrongAnswerDeep,
   classifyUpload,
   saveWrongAnswer,
   type ClassifyState,
@@ -28,6 +29,9 @@ export default function RegisterForm({
   const [difficulty, setDifficulty] = useState<Difficulty>("중");
   const [fileKey, setFileKey] = useState(0);
   const [savedImageUrl, setSavedImageUrl] = useState<string | null>(null);
+  const [analysisPoints, setAnalysisPoints] = useState<string[]>([]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const [classifyState, classifyAction, classifying] = useActionState(
     classifyUpload,
@@ -43,6 +47,8 @@ export default function RegisterForm({
       setUnit(classifyState.result.unit);
       setProblemType(classifyState.result.problem_type);
       setDifficulty(classifyState.result.difficulty);
+      setAnalysisPoints([]);
+      setAnalysisError(null);
     }
   }, [classifyState.result]);
 
@@ -51,12 +57,27 @@ export default function RegisterForm({
       setSavedImageUrl(classifyState.imageUrl);
       setUnit("");
       setProblemType("");
+      setAnalysisPoints([]);
       setFileKey((k) => k + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveState.success]);
 
   const showResult = Boolean(classifyState.imageUrl) && classifyState.imageUrl !== savedImageUrl;
+
+  async function requestDeepAnalysis() {
+    if (!classifyState.imageUrl) return;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const { points } = await analyzeWrongAnswerDeep(classifyState.imageUrl);
+      setAnalysisPoints(points);
+    } catch {
+      setAnalysisError("심층분석 중 오류가 발생했습니다.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-lg p-6 space-y-6 text-sm">
@@ -103,6 +124,7 @@ export default function RegisterForm({
           <input type="hidden" name="studentId" value={studentId} />
           <input type="hidden" name="imageUrl" value={classifyState.imageUrl} />
           <input type="hidden" name="rawResponse" value={classifyState.rawResponse ?? ""} />
+          <input type="hidden" name="analysisPoints" value={JSON.stringify(analysisPoints)} />
 
           <p className="font-medium">AI 분류 결과 (확인/수정 후 저장)</p>
 
@@ -169,6 +191,25 @@ export default function RegisterForm({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="space-y-2 border-t pt-3">
+            <button
+              type="button"
+              onClick={requestDeepAnalysis}
+              disabled={analyzing}
+              className="w-full border rounded px-4 py-2 hover:bg-gray-50 disabled:opacity-40"
+            >
+              {analyzing ? "심층분석 중..." : "심층분석 (Gemini 3.6 Flash)"}
+            </button>
+            {analysisError && <p className="text-red-600">{analysisError}</p>}
+            {analysisPoints.length > 0 && (
+              <ul className="list-disc list-inside space-y-1 bg-gray-50 rounded p-2">
+                {analysisPoints.map((point, i) => (
+                  <li key={i}>{point}</li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <button

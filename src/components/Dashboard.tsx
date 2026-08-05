@@ -349,6 +349,16 @@ export default function Dashboard({
                     분류 수정
                   </button>
                 </div>
+                {previewItem.analysis_points && previewItem.analysis_points.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-gray-500">심층분석 포인트</p>
+                    <ul className="list-disc list-inside space-y-1 bg-gray-50 rounded p-2">
+                      {previewItem.analysis_points.map((point, i) => (
+                        <li key={i}>{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <button
                   onClick={requestReclassify}
                   disabled={reclassifying}

@@ -76,3 +76,41 @@ export async function classifyWrongAnswer(
 
   return { result: parsed, rawResponse };
 }
+
+const ANALYSIS_PROMPT = `이 수학 오답 사진을 보고, 이 문제를 풀기 위해 꼭 알아야 할 핵심 포인트를 1~3개, 아주 간결하게 정리해줘.
+- 각 포인트는 한 문장 이내로, 실제로 이 문제를 풀 때 떠올려야 할 공식/개념/접근법 위주로 작성해줘.
+  예: "두 점이 주어졌을 때 직선의 방정식 공식"
+- 전체 풀이 과정이나 답, 부가 설명은 쓰지 말고 포인트만 나열해줘.
+- 문제 사진이 아니거나 내용을 알아볼 수 없으면 포인트를 하나만, "문제를 인식할 수 없습니다"로 답해줘.`;
+
+export async function analyzeWrongAnswer(
+  fileBuffer: Buffer,
+  mimeType: string
+): Promise<{ points: string[]; rawResponse: string }> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3.6-flash",
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { inlineData: { mimeType, data: fileBuffer.toString("base64") } },
+          { text: ANALYSIS_PROMPT },
+        ],
+      },
+    ],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        minItems: 1,
+        maxItems: 3,
+      },
+    },
+  });
+
+  const rawResponse = response.text ?? "";
+  const points = JSON.parse(rawResponse) as string[];
+
+  return { points, rawResponse };
+}
