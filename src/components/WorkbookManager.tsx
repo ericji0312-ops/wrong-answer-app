@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createWorkbook,
   deleteWorkbook,
   deleteWorkbookProblem,
   getWorkbookProblems,
-  parseWorkbookPdfUpload,
+  parseWorkbookPdfFromStorage,
   saveWorkbookProblems,
   updateWorkbookProblem,
 } from "@/app/actions/workbooks";
+import { supabase, WORKBOOK_PDF_BUCKET } from "@/lib/supabaseClient";
 import type { Difficulty, Subject, Workbook, WorkbookProblem } from "@/types/domain";
 import { DIFFICULTIES } from "@/types/domain";
 import type { ParsedWorkbookProblem } from "@/lib/gemini";
@@ -38,11 +39,13 @@ export default function WorkbookManager({
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  const [uploading, setUploading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ParsedWorkbookProblem[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [fileKey, setFileKey] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const workbooksForSubject = useMemo(
     () => localWorkbooks.filter((w) => w.subject_id === subjectId),
@@ -95,12 +98,31 @@ export default function WorkbookManager({
     if (selectedWorkbookId === id) setSelectedWorkbookId(null);
   }
 
-  async function handleParse(formData: FormData) {
-    setParsing(true);
+  async function handleParse() {
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) return;
+
     setParseError(null);
     setDraft(null);
+
+    // Vercel 서버리스 함수는 요청 본문이 약 4.5MB를 넘으면 플랫폼 레벨에서
+    // 413으로 막아버려서, 큰 PDF는 서버 액션으로 직접 보낼 수 없다. 브라우저에서
+    // 스토리지로 바로 업로드하고, 서버에는 경로만 넘긴다.
+    setUploading(true);
+    const storagePath = `${crypto.randomUUID()}.pdf`;
+    const { error: uploadError } = await supabase.storage
+      .from(WORKBOOK_PDF_BUCKET)
+      .upload(storagePath, file, { contentType: "application/pdf" });
+    setUploading(false);
+
+    if (uploadError) {
+      setParseError("PDF 업로드 중 오류가 발생했습니다.");
+      return;
+    }
+
+    setParsing(true);
     try {
-      const { problems: parsed } = await parseWorkbookPdfUpload(subjectId, formData);
+      const { problems: parsed } = await parseWorkbookPdfFromStorage(subjectId, storagePath);
       if (parsed.length === 0) {
         setParseError("PDF에서 문제를 인식하지 못했습니다.");
       } else {
@@ -257,28 +279,25 @@ export default function WorkbookManager({
             </button>
           </div>
 
-          <form
-            action={handleParse}
-            key={fileKey}
-            className="space-y-2 bg-gray-50 rounded p-3"
-          >
+          <div key={fileKey} className="space-y-2 bg-gray-50 rounded p-3">
             <label className="block font-medium">문제집 PDF 업로드 및 AI 분석</label>
             <input
+              ref={fileInputRef}
               type="file"
-              name="file"
               accept="application/pdf"
               required
               className="border rounded px-2 py-1 w-full bg-white"
             />
             <button
-              type="submit"
-              disabled={parsing}
+              type="button"
+              onClick={handleParse}
+              disabled={uploading || parsing}
               className="bg-gray-800 text-white rounded px-4 py-2 w-full hover:bg-gray-900 disabled:opacity-40"
             >
-              {parsing ? "AI 분석 중..." : "업로드 및 분석"}
+              {uploading ? "업로드 중..." : parsing ? "AI 분석 중..." : "업로드 및 분석"}
             </button>
             {parseError && <p className="text-red-600">{parseError}</p>}
-          </form>
+          </div>
 
           {draft && (
             <div className="space-y-2">

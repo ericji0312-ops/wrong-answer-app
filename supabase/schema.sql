@@ -210,3 +210,30 @@ alter table wrong_answers add constraint wrong_answers_attempt_session_id_fkey
 create policy "wrong-answers anon delete"
   on storage.objects for delete
   using (bucket_id = 'wrong-answers');
+
+-- ============================================================
+-- 마이그레이션: 문제집 PDF 업로드용 스토리지 버킷
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+--
+-- Vercel 서버리스 함수는 요청 본문이 약 4.5MB를 넘으면 플랫폼 자체에서
+-- 413으로 막아버려서(Next.js의 bodySizeLimit 설정과는 별개), 스캔본처럼
+-- 큰 PDF는 서버 액션으로 직접 보낼 수 없다. 그래서 브라우저에서 이 버킷으로
+-- 바로 업로드한 뒤, 서버는 경로만 받아 다운로드해서 Gemini에 넘긴다.
+-- 분석이 끝나면(성공/실패 무관) 서버가 바로 지운다 — 상시 보관용이 아니다.
+-- ============================================================
+
+insert into storage.buckets (id, name, public)
+values ('workbook-pdfs', 'workbook-pdfs', true)
+on conflict (id) do nothing;
+
+create policy "workbook-pdfs public read"
+  on storage.objects for select
+  using (bucket_id = 'workbook-pdfs');
+
+create policy "workbook-pdfs anon insert"
+  on storage.objects for insert
+  with check (bucket_id = 'workbook-pdfs');
+
+create policy "workbook-pdfs anon delete"
+  on storage.objects for delete
+  using (bucket_id = 'workbook-pdfs');

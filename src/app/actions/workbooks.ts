@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, WORKBOOK_PDF_BUCKET } from "@/lib/supabaseClient";
 import { parseWorkbookPdf, type ParsedWorkbookProblem } from "@/lib/gemini";
 import { getUnitTags } from "@/app/actions/unitTags";
 import type { Workbook, WorkbookProblem } from "@/types/domain";
@@ -49,23 +49,33 @@ export async function getWorkbookProblems(workbookId: string): Promise<WorkbookP
   return data ?? [];
 }
 
-export async function parseWorkbookPdfUpload(
+// PDF는 브라우저에서 workbook-pdfs 버킷으로 직접 업로드된 뒤, 여기서는 그
+// 경로만 받아 서버 쪽에서 내려받는다. Vercel 서버리스 함수는 요청 본문이
+// 약 4.5MB를 넘으면 플랫폼 레벨에서 413으로 막아버려서, 스캔본 같은 큰
+// PDF를 서버 액션에 직접(FormData로) 실어 보낼 수 없기 때문이다.
+export async function parseWorkbookPdfFromStorage(
   subjectId: string,
-  formData: FormData
+  storagePath: string
 ): Promise<{ problems: ParsedWorkbookProblem[] }> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("PDF 파일을 선택해주세요.");
-  }
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(WORKBOOK_PDF_BUCKET).getPublicUrl(storagePath);
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const allowedTags = await getUnitTags(subjectId);
   try {
+    const fileResponse = await fetch(publicUrl);
+    if (!fileResponse.ok) {
+      throw new Error("업로드된 PDF를 불러오지 못했습니다.");
+    }
+    const buffer = Buffer.from(await fileResponse.arrayBuffer());
+
+    const allowedTags = await getUnitTags(subjectId);
     const { problems } = await parseWorkbookPdf(buffer, allowedTags);
     return { problems };
   } catch (error) {
     console.error("parseWorkbookPdf failed", error);
     throw error;
+  } finally {
+    await supabase.storage.from(WORKBOOK_PDF_BUCKET).remove([storagePath]);
   }
 }
 
