@@ -33,6 +33,7 @@ export default function WorkbookManager({
   const [loadingProblems, setLoadingProblems] = useState(false);
 
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
+  const [editProblemNumber, setEditProblemNumber] = useState("");
   const [editUnit, setEditUnit] = useState("");
   const [editProblemType, setEditProblemType] = useState("");
   const [editDifficulty, setEditDifficulty] = useState<Difficulty>("중");
@@ -170,6 +171,7 @@ export default function WorkbookManager({
 
   function startEditProblem(p: WorkbookProblem) {
     setEditingProblemId(p.id);
+    setEditProblemNumber(String(p.problem_number));
     setEditUnit(p.unit);
     setEditProblemType(p.problem_type);
     setEditDifficulty(p.difficulty);
@@ -177,20 +179,35 @@ export default function WorkbookManager({
   }
 
   async function saveEditProblem(id: string) {
+    const problemNumber = Number(editProblemNumber);
+    if (!Number.isInteger(problemNumber) || problemNumber <= 0) {
+      setEditError("문제번호를 올바르게 입력해주세요.");
+      return;
+    }
+
     setEditSaving(true);
     setEditError(null);
     try {
       await updateWorkbookProblem(id, {
+        problem_number: problemNumber,
         unit: editUnit,
         problem_type: editProblemType,
         difficulty: editDifficulty,
       });
       setProblems((prev) =>
-        prev.map((p) =>
-          p.id === id
-            ? { ...p, unit: editUnit.trim(), problem_type: editProblemType.trim(), difficulty: editDifficulty }
-            : p
-        )
+        prev
+          .map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  problem_number: problemNumber,
+                  unit: editUnit.trim(),
+                  problem_type: editProblemType.trim(),
+                  difficulty: editDifficulty,
+                }
+              : p
+          )
+          .sort((a, b) => a.problem_number - b.problem_number)
       );
       setEditingProblemId(null);
     } catch {
@@ -378,7 +395,12 @@ export default function WorkbookManager({
                 {problems.map((p) =>
                   editingProblemId === p.id ? (
                     <div key={p.id} className="flex flex-wrap items-center gap-2 p-2 text-xs">
-                      <span className="w-10 shrink-0">{p.problem_number}번</span>
+                      <input
+                        type="number"
+                        value={editProblemNumber}
+                        onChange={(e) => setEditProblemNumber(e.target.value)}
+                        className="border rounded px-1 py-0.5 w-16 shrink-0"
+                      />
                       <input
                         type="text"
                         value={editUnit}
