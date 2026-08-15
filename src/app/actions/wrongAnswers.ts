@@ -1,210 +1,172 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { supabase, WRONG_ANSWER_BUCKET } from "@/lib/supabaseClient";
-import { analyzeWrongAnswer, classifyWrongAnswer } from "@/lib/gemini";
-import { getUnitTags } from "@/app/actions/unitTags";
-import type { ClassificationResult, Difficulty, WrongAnswer } from "@/types/domain";
-import { DIFFICULTIES } from "@/types/domain";
+import { supabase } from "@/lib/supabaseClient";
 
-export interface ClassifyState {
-  error?: string;
-  imageUrl?: string;
-  rawResponse?: string;
-  result?: ClassificationResult;
+export interface UnitTypeRate {
+  unit: string;
+  problem_type: string;
+  wrong: number;
+  total: number;
 }
 
-export async function classifyUpload(
-  _prevState: ClassifyState,
-  formData: FormData
-): Promise<ClassifyState> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { error: "사진 또는 PDF 파일을 선택해주세요." };
-  }
+export interface HeatmapCell {
+  problem_type: string;
+  difficulty: string;
+  wrong: number;
+  total: number;
+}
 
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+export interface WrongRateBreakdown {
+  unitTypeRates: UnitTypeRate[];
+  typeDifficultyRates: HeatmapCell[];
+}
 
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${randomUUID()}.${ext}`;
+export async function getWrongRateBreakdown(
+  studentId: string,
+  sinceIso?: string
+): Promise<WrongRateBreakdown> {
+  let sessionQuery = supabase
+    .from("attempt_sessions")
+    .select("*")
+    .eq("student_id", studentId);
+  if (sinceIso) sessionQuery = sessionQuery.gte("recorded_at", sinceIso);
 
-  const { error: uploadError } = await supabase.storage
-    .from(WRONG_ANSWER_BUCKET)
-    .upload(path, buffer, { contentType: file.type || "application/octet-stream" });
+  const { data: sessions, error: sessionsError } = await sessionQuery;
+  if (sessionsError) throw new Error(sessionsError.message);
+  if (!sessions || sessions.length === 0)
+    return { unitTypeRates: [], typeDifficultyRates: [] };
 
-  if (uploadError) {
-    return { error: "파일 업로드 중 오류가 발생했습니다." };
-  }
+  const sessionIds = sessions.map((s) => s.id);
+  const workbookIds = [...new Set(sessions.map((s) => s.workbook_id))];
 
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from(WRONG_ANSWER_BUCKET).getPublicUrl(path);
+  const [{ data: allProblems, error: problemsError }, { data: wrongRows, error: wrongError }] =
+    await Promise.all([
+      supabase.from("workbook_problems").select("*").in("workbook_id", workbookIds),
+      supabase
+        .from("wrong_answers")
+        .select("attempt_session_id, workbook_problem_id")
+        .in("attempt_session_id", sessionIds),
+    ]);
 
-  try {
-    const allowedTags = await getUnitTags();
-    const { result, rawResponse } = await classifyWrongAnswer(
-      buffer,
-      file.type || "image/jpeg",
-      allowedTags
+  if (problemsError) throw new Error(problemsError.message);
+  if (wrongError) throw new Error(wrongError.message);
+
+  // 같은 문제집·범위를 실수로 두 번 등록(예: 놓친 오답을 나중에 추가 등록)해도
+  // 분모가 중복으로 늘어나지 않도록, 세션들이 커버하는 문제를 "세션별 합산"이
+  // 아니라 problem id 기준 합집합(distinct)으로 모은다. 오답 여부도 같은
+  // 방식으로 problem id 기준 distinct 집합으로 판정한다.
+  const coveredProblems = new Map<string, (typeof allProblems)[number]>();
+  for (const session of sessions) {
+    const inRange = (allProblems ?? []).filter(
+      (p) =>
+        p.workbook_id === session.workbook_id &&
+        p.problem_number >= session.range_start &&
+        p.problem_number <= session.range_end
     );
-    return { imageUrl: publicUrl, result, rawResponse };
-  } catch {
-    return {
-      error: "AI 분류 중 오류가 발생했습니다. 단원/유형을 직접 입력해주세요.",
-      imageUrl: publicUrl,
-    };
-  }
-}
-
-export interface SaveWrongAnswerState {
-  error?: string;
-  success?: boolean;
-}
-
-export async function saveWrongAnswer(
-  _prevState: SaveWrongAnswerState,
-  formData: FormData
-): Promise<SaveWrongAnswerState> {
-  const studentId = formData.get("studentId");
-  const imageUrl = formData.get("imageUrl");
-  const unit = formData.get("unit");
-  const problemType = formData.get("problemType");
-  const difficulty = formData.get("difficulty");
-  const rawResponse = formData.get("rawResponse");
-  const analysisPointsRaw = formData.get("analysisPoints");
-
-  if (typeof studentId !== "string" || studentId.length === 0) {
-    return { error: "학생을 선택해주세요." };
-  }
-  if (typeof imageUrl !== "string" || imageUrl.length === 0) {
-    return { error: "먼저 사진을 업로드하고 분류해주세요." };
-  }
-  if (typeof unit !== "string" || unit.trim().length === 0) {
-    return { error: "단원을 입력해주세요." };
-  }
-  if (typeof problemType !== "string" || problemType.trim().length === 0) {
-    return { error: "세부 유형을 입력해주세요." };
-  }
-  if (typeof difficulty !== "string" || !DIFFICULTIES.includes(difficulty as Difficulty)) {
-    return { error: "난이도를 선택해주세요." };
-  }
-
-  let analysisPoints: string[] | null = null;
-  if (typeof analysisPointsRaw === "string" && analysisPointsRaw.length > 0) {
-    try {
-      const parsed = JSON.parse(analysisPointsRaw);
-      if (Array.isArray(parsed)) {
-        const points = parsed.filter(
-          (p): p is string => typeof p === "string" && p.trim().length > 0
-        );
-        analysisPoints = points.length > 0 ? points : null;
-      }
-    } catch {
-      analysisPoints = null;
+    for (const p of inRange) {
+      coveredProblems.set(p.id, p);
     }
   }
 
-  const { error } = await supabase.from("wrong_answers").insert({
-    student_id: studentId,
-    image_url: imageUrl,
-    unit: unit.trim(),
-    problem_type: problemType.trim(),
-    difficulty,
-    ai_raw_response: typeof rawResponse === "string" ? rawResponse : null,
-    analysis_points: analysisPoints,
-    is_verified: true,
+  const wrongProblemIds = new Set(
+    (wrongRows ?? [])
+      .map((row) => row.workbook_problem_id)
+      .filter((id): id is string => id !== null)
+  );
+
+  const unitTypeTotals = new Map<string, number>();
+  const unitTypeWrong = new Map<string, number>();
+  const cellTotals = new Map<string, number>();
+  const cellWrong = new Map<string, number>();
+  const unitTypeKey = (unit: string, type: string) => `${unit}||${type}`;
+  const cellKey = (type: string, difficulty: string) => `${type}||${difficulty}`;
+
+  for (const p of coveredProblems.values()) {
+    const utKey = unitTypeKey(p.unit, p.problem_type);
+    unitTypeTotals.set(utKey, (unitTypeTotals.get(utKey) ?? 0) + 1);
+    const cKey = cellKey(p.problem_type, p.difficulty);
+    cellTotals.set(cKey, (cellTotals.get(cKey) ?? 0) + 1);
+
+    if (wrongProblemIds.has(p.id)) {
+      unitTypeWrong.set(utKey, (unitTypeWrong.get(utKey) ?? 0) + 1);
+      cellWrong.set(cKey, (cellWrong.get(cKey) ?? 0) + 1);
+    }
+  }
+
+  const unitTypeRates: UnitTypeRate[] = [...unitTypeTotals.entries()].map(([key, total]) => {
+    const [unit, problem_type] = key.split("||");
+    return { unit, problem_type, total, wrong: unitTypeWrong.get(key) ?? 0 };
   });
 
-  if (error) return { error: "저장 중 오류가 발생했습니다." };
+  const typeDifficultyRates: HeatmapCell[] = [...cellTotals.entries()].map(([key, total]) => {
+    const [problem_type, difficulty] = key.split("||");
+    return { problem_type, difficulty, total, wrong: cellWrong.get(key) ?? 0 };
+  });
 
-  revalidatePath("/dashboard");
-  return { success: true };
+  return { unitTypeRates, typeDifficultyRates };
 }
 
-export async function getWrongAnswers(studentId: string): Promise<WrongAnswer[]> {
-  const { data, error } = await supabase
-    .from("wrong_answers")
+export interface SaveWorkbookWrongAnswersInput {
+  studentId: string;
+  workbookId: string;
+  rangeStart: number;
+  rangeEnd: number;
+  wrongProblemNumbers: number[];
+}
+
+export async function saveWorkbookWrongAnswers({
+  studentId,
+  workbookId,
+  rangeStart,
+  rangeEnd,
+  wrongProblemNumbers,
+}: SaveWorkbookWrongAnswersInput) {
+  if (!studentId) throw new Error("학생을 선택해주세요.");
+  if (!workbookId) throw new Error("문제집을 선택해주세요.");
+  if (!Number.isInteger(rangeStart) || !Number.isInteger(rangeEnd) || rangeStart > rangeEnd) {
+    throw new Error("풀이 범위를 올바르게 입력해주세요.");
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from("attempt_sessions")
+    .insert({
+      student_id: studentId,
+      workbook_id: workbookId,
+      range_start: rangeStart,
+      range_end: rangeEnd,
+    })
+    .select()
+    .single();
+
+  if (sessionError) throw new Error(sessionError.message);
+  if (wrongProblemNumbers.length === 0) {
+    revalidatePath("/dashboard");
+    return;
+  }
+
+  const { data: wrongProblems, error: problemsError } = await supabase
+    .from("workbook_problems")
     .select("*")
-    .eq("student_id", studentId)
-    .order("recorded_at", { ascending: false });
+    .eq("workbook_id", workbookId)
+    .in("problem_number", wrongProblemNumbers);
 
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
+  if (problemsError) throw new Error(problemsError.message);
 
-export async function updateWrongAnswerClassification(
-  id: string,
-  unit: string,
-  problemType: string,
-  difficulty: Difficulty
-) {
-  const trimmedUnit = unit.trim();
-  const trimmedType = problemType.trim();
-  if (!trimmedUnit || !trimmedType) {
-    throw new Error("단원과 세부 유형을 입력해주세요.");
-  }
-  if (!DIFFICULTIES.includes(difficulty)) {
-    throw new Error("난이도를 선택해주세요.");
-  }
+  const rows = (wrongProblems ?? []).map((p) => ({
+    student_id: studentId,
+    workbook_problem_id: p.id,
+    attempt_session_id: session.id,
+    unit: p.unit,
+    problem_type: p.problem_type,
+    difficulty: p.difficulty,
+    is_verified: true,
+  }));
 
-  const { error } = await supabase
-    .from("wrong_answers")
-    .update({ unit: trimmedUnit, problem_type: trimmedType, difficulty })
-    .eq("id", id);
-
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard");
-}
-
-export async function deleteWrongAnswer(id: string, imageUrl: string) {
-  const { error } = await supabase.from("wrong_answers").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-
-  const marker = `/${WRONG_ANSWER_BUCKET}/`;
-  const markerIndex = imageUrl.indexOf(marker);
-  if (markerIndex !== -1) {
-    const path = imageUrl.slice(markerIndex + marker.length);
-    await supabase.storage.from(WRONG_ANSWER_BUCKET).remove([path]);
+  if (rows.length > 0) {
+    const { error: insertError } = await supabase.from("wrong_answers").insert(rows);
+    if (insertError) throw new Error(insertError.message);
   }
 
   revalidatePath("/dashboard");
-}
-
-export async function reclassifyWrongAnswer(
-  imageUrl: string
-): Promise<{ result: ClassificationResult; rawResponse: string }> {
-  const imageResponse = await fetch(imageUrl);
-  if (!imageResponse.ok) {
-    throw new Error("원본 사진을 불러오지 못했습니다.");
-  }
-  const mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
-  const buffer = Buffer.from(await imageResponse.arrayBuffer());
-
-  const allowedTags = await getUnitTags();
-  return classifyWrongAnswer(buffer, mimeType, allowedTags);
-}
-
-export async function analyzeWrongAnswerDeep(
-  imageUrl: string
-): Promise<{ points: string[]; rawResponse: string }> {
-  const imageResponse = await fetch(imageUrl);
-  if (!imageResponse.ok) {
-    throw new Error("원본 사진을 불러오지 못했습니다.");
-  }
-  const mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
-  const buffer = Buffer.from(await imageResponse.arrayBuffer());
-
-  return analyzeWrongAnswer(buffer, mimeType);
-}
-
-export async function getAllWrongAnswers(): Promise<WrongAnswer[]> {
-  const { data, error } = await supabase
-    .from("wrong_answers")
-    .select("*")
-    .order("recorded_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return data ?? [];
 }

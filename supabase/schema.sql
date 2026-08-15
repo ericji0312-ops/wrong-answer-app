@@ -77,3 +77,136 @@ alter table unit_tags disable row level security;
 
 alter table wrong_answers
   add column if not exists difficulty text;
+
+-- ============================================================
+-- 마이그레이션: 과목(subjects) + 학생-과목 수강 연결 + 분류항목 과목 소속
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+-- ============================================================
+
+create table subjects (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+alter table subjects disable row level security;
+
+create table student_subjects (
+  student_id uuid not null references students(id) on delete cascade,
+  subject_id uuid not null references subjects(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (student_id, subject_id)
+);
+
+alter table student_subjects disable row level security;
+
+-- 기존 unit_tags는 과목 개념 없이 만들어졌으므로, 기본 과목 "수학"을 만들고
+-- 기존 데이터를 모두 이 과목 소속으로 이관한다. 필요하면 /subjects 화면에서
+-- 이후에 과목을 더 추가하거나 이름을 바꾸면 된다.
+insert into subjects (name) values ('수학')
+on conflict (name) do nothing;
+
+alter table unit_tags add column if not exists subject_id uuid references subjects(id);
+
+update unit_tags
+set subject_id = (select id from subjects where name = '수학')
+where subject_id is null;
+
+alter table unit_tags alter column subject_id set not null;
+
+alter table unit_tags drop constraint if exists unit_tags_unit_problem_type_key;
+alter table unit_tags add constraint unit_tags_subject_unit_problem_type_key
+  unique (subject_id, unit, problem_type);
+
+create index on unit_tags (subject_id);
+
+-- ============================================================
+-- 마이그레이션: 문제집(workbooks) 기반 오답률 시스템
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+-- ============================================================
+
+create table workbooks (
+  id uuid primary key default gen_random_uuid(),
+  subject_id uuid not null references subjects(id) on delete cascade,
+  title text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table workbooks disable row level security;
+create index on workbooks (subject_id);
+
+create table workbook_problems (
+  id uuid primary key default gen_random_uuid(),
+  workbook_id uuid not null references workbooks(id) on delete cascade,
+  problem_number integer not null,
+  unit text not null,
+  problem_type text not null,
+  difficulty text not null,
+  created_at timestamptz not null default now(),
+  unique (workbook_id, problem_number)
+);
+
+alter table workbook_problems disable row level security;
+create index on workbook_problems (workbook_id);
+
+create table attempt_sessions (
+  id uuid primary key default gen_random_uuid(),
+  student_id uuid not null references students(id) on delete cascade,
+  workbook_id uuid not null references workbooks(id) on delete cascade,
+  range_start integer not null,
+  range_end integer not null,
+  recorded_at timestamptz not null default now()
+);
+
+alter table attempt_sessions disable row level security;
+create index on attempt_sessions (student_id);
+create index on attempt_sessions (workbook_id);
+
+-- wrong_answers: 문제집 기반 등록을 지원하도록 확장. 새 방식은 사진이 없으므로
+-- image_url을 nullable로 바꾸고, 문제집 문제/풀이 세션을 참조하는 컬럼을 추가한다.
+-- 기존 사진 기반 오답 기록은 그대로 남아있고 대시보드에서 계속 조회/수정할 수 있다.
+alter table wrong_answers alter column image_url drop not null;
+alter table wrong_answers add column if not exists workbook_problem_id uuid references workbook_problems(id);
+alter table wrong_answers add column if not exists attempt_session_id uuid references attempt_sessions(id);
+
+create index on wrong_answers (workbook_problem_id);
+create index on wrong_answers (attempt_session_id);
+
+-- ============================================================
+-- 마이그레이션: 삭제 시 외래키 동작 수정
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+--
+-- unit_tags.subject_id에 on delete cascade가 빠져 있어서, 이미 분류 항목이
+-- 연결된 과목을 삭제하면 외래키 제약 위반으로 실패했다 (화면에는 에러가
+-- 표시되지 않아 마치 아무 반응이 없는 것처럼 보임). workbooks처럼 과목
+-- 삭제 시 그 과목의 분류 항목도 함께 삭제되도록 cascade로 바꾼다.
+--
+-- wrong_answers.workbook_problem_id / attempt_session_id는 반대로, 문제집
+-- 문제나 풀이 세션이 나중에 삭제되더라도 이미 기록된 오답(단원/유형/난이도는
+-- 저장 시점에 복사해뒀음)은 사라지지 않고 남아있어야 하므로 on delete set
+-- null로 바꾼다.
+-- ============================================================
+
+alter table unit_tags drop constraint if exists unit_tags_subject_id_fkey;
+alter table unit_tags add constraint unit_tags_subject_id_fkey
+  foreign key (subject_id) references subjects(id) on delete cascade;
+
+alter table wrong_answers drop constraint if exists wrong_answers_workbook_problem_id_fkey;
+alter table wrong_answers add constraint wrong_answers_workbook_problem_id_fkey
+  foreign key (workbook_problem_id) references workbook_problems(id) on delete set null;
+
+alter table wrong_answers drop constraint if exists wrong_answers_attempt_session_id_fkey;
+alter table wrong_answers add constraint wrong_answers_attempt_session_id_fkey
+  foreign key (attempt_session_id) references attempt_sessions(id) on delete set null;
+
+-- ============================================================
+-- 마이그레이션: wrong-answers 스토리지 버킷에 삭제 정책 추가
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+--
+-- 처음 버킷을 만들 때 읽기/업로드 정책만 열어두고 삭제 정책을 빠뜨려서,
+-- 오답 기록을 지워도 연결된 사진 파일은 스토리지에 그대로 남아있었다.
+-- ============================================================
+
+create policy "wrong-answers anon delete"
+  on storage.objects for delete
+  using (bucket_id = 'wrong-answers');

@@ -1,12 +1,12 @@
 "use client";
 
-import { useActionState, useMemo } from "react";
+import { useActionState, useMemo, useState } from "react";
 import {
   uploadUnitTags,
   deleteUnitTag,
   type UploadUnitTagsState,
 } from "@/app/actions/unitTags";
-import type { UnitTag } from "@/types/domain";
+import type { Subject, UnitTag } from "@/types/domain";
 
 const initialState: UploadUnitTagsState = {};
 
@@ -19,32 +19,61 @@ const PLACEHOLDER = `이차함수
 - 수열의 극한값 계산
 - 급수의 합`;
 
-export default function TagManager({ tags }: { tags: UnitTag[] }) {
+export default function TagManager({
+  tags,
+  subjects,
+}: {
+  tags: UnitTag[];
+  subjects: Subject[];
+}) {
+  const [subjectId, setSubjectId] = useState(subjects[0]?.id ?? "");
   const [state, formAction, pending] = useActionState(uploadUnitTags, initialState);
+
+  const tagsForSubject = useMemo(
+    () => tags.filter((t) => t.subject_id === subjectId),
+    [tags, subjectId]
+  );
 
   const grouped = useMemo(() => {
     const map = new Map<string, UnitTag[]>();
-    for (const tag of tags) {
+    for (const tag of tagsForSubject) {
       const list = map.get(tag.unit) ?? [];
       list.push(tag);
       map.set(tag.unit, list);
     }
     return [...map.entries()];
-  }, [tags]);
+  }, [tagsForSubject]);
 
   return (
     <div className="mx-auto max-w-2xl p-6 space-y-6 text-sm">
       <div>
         <h1 className="text-xl font-bold">분류 항목 관리</h1>
         <p className="text-gray-500 mt-1">
-          커리큘럼 단원/세부유형을 텍스트로 붙여넣으면, AI가 오답을 분류할 때 이
-          목록에서 가장 가까운 항목을 우선적으로 고릅니다. 단원명 줄 아래에{" "}
-          <code className="bg-gray-100 px-1 rounded">- 세부유형</code> 형태로
-          적어주세요.
+          커리큘럼 단원/세부유형을 과목별로 텍스트로 붙여넣으면, AI가 오답을
+          분류할 때 이 목록에서 가장 가까운 항목을 우선적으로 고릅니다. 단원명
+          줄 아래에 <code className="bg-gray-100 px-1 rounded">- 세부유형</code>{" "}
+          형태로 적어주세요.
         </p>
       </div>
 
+      <div className="space-y-1">
+        <label className="block font-medium">과목</label>
+        <select
+          value={subjectId}
+          onChange={(e) => setSubjectId(e.target.value)}
+          className="border rounded px-2 py-1 w-full"
+        >
+          {subjects.length === 0 && <option value="">등록된 과목이 없습니다</option>}
+          {subjects.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <form action={formAction} className="space-y-2 border-b pb-4">
+        <input type="hidden" name="subjectId" value={subjectId} />
         <textarea
           name="text"
           rows={10}
@@ -54,7 +83,7 @@ export default function TagManager({ tags }: { tags: UnitTag[] }) {
         />
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !subjectId}
           className="bg-blue-600 text-white rounded px-4 py-2 w-full transition-colors duration-150 hover:bg-blue-700 disabled:opacity-40"
         >
           {pending ? "업로드 중..." : "업로드"}

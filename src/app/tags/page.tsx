@@ -1,7 +1,8 @@
 import { getUnitTags } from "@/app/actions/unitTags";
+import { getSubjects } from "@/app/actions/subjects";
 import TagManager from "@/components/TagManager";
 
 export default async function TagsPage() {
-  const tags = await getUnitTags();
-  return <TagManager tags={tags} />;
+  const [tags, subjects] = await Promise.all([getUnitTags(), getSubjects()]);
+  return <TagManager tags={tags} subjects={subjects} />;
 }

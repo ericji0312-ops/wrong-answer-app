@@ -7,7 +7,9 @@ const LINKS = [
   { href: "/register", label: "오답 등록" },
   { href: "/dashboard", label: "취약유형 대시보드" },
   { href: "/students", label: "학생 관리" },
+  { href: "/subjects", label: "과목 관리" },
   { href: "/tags", label: "분류 항목" },
+  { href: "/workbooks", label: "문제집 관리" },
 ];
 
 export default function NavLinks() {

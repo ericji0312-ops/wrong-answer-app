@@ -4,12 +4,16 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabaseClient";
 import type { UnitTag } from "@/types/domain";
 
-export async function getUnitTags(): Promise<UnitTag[]> {
-  const { data, error } = await supabase
+export async function getUnitTags(subjectId?: string): Promise<UnitTag[]> {
+  let query = supabase
     .from("unit_tags")
     .select("*")
     .order("unit", { ascending: true })
     .order("problem_type", { ascending: true });
+
+  if (subjectId) query = query.eq("subject_id", subjectId);
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -52,6 +56,11 @@ export async function uploadUnitTags(
   _prevState: UploadUnitTagsState,
   formData: FormData
 ): Promise<UploadUnitTagsState> {
+  const subjectId = formData.get("subjectId");
+  if (typeof subjectId !== "string" || subjectId.length === 0) {
+    return { error: "과목을 먼저 선택해주세요." };
+  }
+
   const text = formData.get("text");
   if (typeof text !== "string" || text.trim().length === 0) {
     return { error: "붙여넣을 분류 항목 텍스트를 입력해주세요." };
@@ -67,7 +76,10 @@ export async function uploadUnitTags(
 
   const { error } = await supabase
     .from("unit_tags")
-    .upsert(parsed, { onConflict: "unit,problem_type", ignoreDuplicates: true });
+    .upsert(
+      parsed.map((tag) => ({ ...tag, subject_id: subjectId })),
+      { onConflict: "subject_id,unit,problem_type", ignoreDuplicates: true }
+    );
 
   if (error) return { error: "저장 중 오류가 발생했습니다." };
 

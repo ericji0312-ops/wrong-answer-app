@@ -1,81 +1,112 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import {
-  analyzeWrongAnswerDeep,
-  classifyUpload,
-  saveWrongAnswer,
-  type ClassifyState,
-  type SaveWrongAnswerState,
-} from "@/app/actions/wrongAnswers";
-import type { Difficulty, Student, UnitTag } from "@/types/domain";
-import { DIFFICULTIES } from "@/types/domain";
-
-const initialClassifyState: ClassifyState = {};
-const initialSaveState: SaveWrongAnswerState = {};
+import { useEffect, useMemo, useState } from "react";
+import { getWorkbookProblems } from "@/app/actions/workbooks";
+import { saveWorkbookWrongAnswers } from "@/app/actions/wrongAnswers";
+import type { Student, Subject, Workbook, WorkbookProblem } from "@/types/domain";
 
 export default function RegisterForm({
   students,
-  unitTags,
+  subjects,
+  studentSubjectMap,
+  workbooks,
 }: {
   students: Student[];
-  unitTags: UnitTag[];
+  subjects: Subject[];
+  studentSubjectMap: Record<string, string[]>;
+  workbooks: Workbook[];
 }) {
-  const units = [...new Set(unitTags.map((t) => t.unit))];
-  const problemTypes = [...new Set(unitTags.map((t) => t.problem_type))];
   const [studentId, setStudentId] = useState(students[0]?.id ?? "");
-  const [unit, setUnit] = useState("");
-  const [problemType, setProblemType] = useState("");
-  const [difficulty, setDifficulty] = useState<Difficulty>("중");
-  const [fileKey, setFileKey] = useState(0);
-  const [savedImageUrl, setSavedImageUrl] = useState<string | null>(null);
-  const [analysisPoints, setAnalysisPoints] = useState<string[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [subjectId, setSubjectId] = useState("");
+  const [workbookId, setWorkbookId] = useState("");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [problems, setProblems] = useState<WorkbookProblem[]>([]);
+  const [loadingProblems, setLoadingProblems] = useState(false);
+  const [wrongNumbers, setWrongNumbers] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const [classifyState, classifyAction, classifying] = useActionState(
-    classifyUpload,
-    initialClassifyState
+  const availableSubjects = useMemo(
+    () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
+    [subjects, studentSubjectMap, studentId]
   );
-  const [saveState, saveAction, saving] = useActionState(
-    saveWrongAnswer,
-    initialSaveState
+
+  const workbooksForSubject = useMemo(
+    () => workbooks.filter((w) => w.subject_id === subjectId),
+    [workbooks, subjectId]
   );
 
   useEffect(() => {
-    if (classifyState.result) {
-      setUnit(classifyState.result.unit);
-      setProblemType(classifyState.result.problem_type);
-      setDifficulty(classifyState.result.difficulty);
-      setAnalysisPoints([]);
-      setAnalysisError(null);
-    }
-  }, [classifyState.result]);
-
-  useEffect(() => {
-    if (saveState.success && classifyState.imageUrl) {
-      setSavedImageUrl(classifyState.imageUrl);
-      setUnit("");
-      setProblemType("");
-      setAnalysisPoints([]);
-      setFileKey((k) => k + 1);
-    }
+    setSubjectId(availableSubjects[0]?.id ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saveState.success]);
+  }, [studentId]);
 
-  const showResult = Boolean(classifyState.imageUrl) && classifyState.imageUrl !== savedImageUrl;
+  useEffect(() => {
+    setWorkbookId(workbooksForSubject[0]?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId]);
 
-  async function requestDeepAnalysis() {
-    if (!classifyState.imageUrl) return;
-    setAnalyzing(true);
-    setAnalysisError(null);
+  useEffect(() => {
+    setProblems([]);
+    setWrongNumbers(new Set());
+    setSaveSuccess(false);
+    if (!workbookId) return;
+    let cancelled = false;
+    setLoadingProblems(true);
+    getWorkbookProblems(workbookId)
+      .then((data) => {
+        if (!cancelled) setProblems(data);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProblems(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workbookId]);
+
+  const start = Number(rangeStart);
+  const end = Number(rangeEnd);
+  const rangeValid =
+    rangeStart !== "" && rangeEnd !== "" && Number.isInteger(start) && Number.isInteger(end) && start <= end;
+
+  const problemsInRange = useMemo(() => {
+    if (!rangeValid) return [];
+    return problems.filter((p) => p.problem_number >= start && p.problem_number <= end);
+  }, [problems, rangeValid, start, end]);
+
+  function toggleWrong(problemNumber: number) {
+    setWrongNumbers((prev) => {
+      const next = new Set(prev);
+      if (next.has(problemNumber)) next.delete(problemNumber);
+      else next.add(problemNumber);
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    if (!studentId || !workbookId || !rangeValid) return;
+    setSaving(true);
+    setSaveError(null);
     try {
-      const { points } = await analyzeWrongAnswerDeep(classifyState.imageUrl);
-      setAnalysisPoints(points);
+      await saveWorkbookWrongAnswers({
+        studentId,
+        workbookId,
+        rangeStart: start,
+        rangeEnd: end,
+        wrongProblemNumbers: [...wrongNumbers],
+      });
+      setSaveSuccess(true);
+      setRangeStart("");
+      setRangeEnd("");
+      setWrongNumbers(new Set());
+      setProblems([]);
     } catch {
-      setAnalysisError("심층분석 중 오류가 발생했습니다.");
+      setSaveError("저장 중 오류가 발생했습니다.");
     } finally {
-      setAnalyzing(false);
+      setSaving(false);
     }
   }
 
@@ -100,129 +131,119 @@ export default function RegisterForm({
         </select>
       </div>
 
-      <form action={classifyAction} className="space-y-2" key={fileKey}>
-        <label className="block font-medium">틀린 문제 사진 / PDF</label>
-        <input
-          type="file"
-          name="file"
-          accept="image/*,application/pdf"
-          required
+      <div className="space-y-1">
+        <label className="block font-medium">과목</label>
+        <select
+          value={subjectId}
+          onChange={(e) => setSubjectId(e.target.value)}
           className="border rounded px-2 py-1 w-full"
-        />
-        <button
-          type="submit"
-          disabled={classifying || !studentId}
-          className="bg-gray-800 text-white rounded px-4 py-2 w-full transition-colors duration-150 hover:bg-gray-900 disabled:opacity-40"
+          disabled={availableSubjects.length === 0}
         >
-          {classifying ? "AI 분류 중..." : "업로드 및 AI 분류"}
-        </button>
-        {classifyState.error && <p className="text-red-600">{classifyState.error}</p>}
-      </form>
+          {availableSubjects.length === 0 && (
+            <option value="">이 학생이 수강 중인 과목이 없습니다</option>
+          )}
+          {availableSubjects.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        {availableSubjects.length === 0 && studentId && (
+          <p className="text-xs text-gray-500">
+            학생 관리 화면에서 이 학생의 수강 과목을 먼저 등록해주세요.
+          </p>
+        )}
+      </div>
 
-      {showResult && (
-        <form action={saveAction} className="space-y-3 border-t pt-4">
-          <input type="hidden" name="studentId" value={studentId} />
-          <input type="hidden" name="imageUrl" value={classifyState.imageUrl} />
-          <input type="hidden" name="rawResponse" value={classifyState.rawResponse ?? ""} />
-          <input type="hidden" name="analysisPoints" value={JSON.stringify(analysisPoints)} />
+      <div className="space-y-1">
+        <label className="block font-medium">문제집</label>
+        <select
+          value={workbookId}
+          onChange={(e) => setWorkbookId(e.target.value)}
+          className="border rounded px-2 py-1 w-full"
+          disabled={workbooksForSubject.length === 0}
+        >
+          {workbooksForSubject.length === 0 && (
+            <option value="">등록된 문제집이 없습니다</option>
+          )}
+          {workbooksForSubject.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.title}
+            </option>
+          ))}
+        </select>
+        {workbooksForSubject.length === 0 && subjectId && (
+          <p className="text-xs text-gray-500">
+            문제집 관리 화면에서 이 과목의 문제집을 먼저 등록해주세요.
+          </p>
+        )}
+      </div>
 
-          <p className="font-medium">AI 분류 결과 (확인/수정 후 저장)</p>
-
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={classifyState.imageUrl}
-            alt="업로드한 오답 사진"
-            className="max-h-64 rounded border object-contain"
+      <div className="space-y-1">
+        <label className="block font-medium">이번에 푼 범위</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            value={rangeStart}
+            onChange={(e) => setRangeStart(e.target.value)}
+            placeholder="시작 번호"
+            className="border rounded px-2 py-1 w-full"
           />
+          <span>~</span>
+          <input
+            type="number"
+            value={rangeEnd}
+            onChange={(e) => setRangeEnd(e.target.value)}
+            placeholder="끝 번호"
+            className="border rounded px-2 py-1 w-full"
+          />
+        </div>
+      </div>
 
-          <div className="space-y-1">
-            <label className="block font-medium">단원</label>
-            <input
-              type="text"
-              name="unit"
-              value={unit}
-              onChange={(e) => setUnit(e.target.value)}
-              list="unit-options"
-              className="border rounded px-2 py-1 w-full"
-              required
-            />
-            <datalist id="unit-options">
-              {units.map((u) => (
-                <option key={u} value={u} />
-              ))}
-            </datalist>
-          </div>
+      {loadingProblems && <p className="text-gray-500">문제 목록을 불러오는 중...</p>}
 
-          <div className="space-y-1">
-            <label className="block font-medium">세부 유형</label>
-            <input
-              type="text"
-              name="problemType"
-              value={problemType}
-              onChange={(e) => setProblemType(e.target.value)}
-              list="problem-type-options"
-              className="border rounded px-2 py-1 w-full"
-              required
-            />
-            <datalist id="problem-type-options">
-              {problemTypes.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-          </div>
-
-          <div className="space-y-1">
-            <label className="block font-medium">난이도</label>
-            <input type="hidden" name="difficulty" value={difficulty} />
-            <div className="flex gap-2">
-              {DIFFICULTIES.map((d) => (
+      {!loadingProblems && rangeValid && workbookId && (
+        <div className="space-y-2 border-t pt-4">
+          <p className="font-medium">
+            틀린 문제를 선택해주세요 ({problemsInRange.length}문항 중{" "}
+            {wrongNumbers.size}개 선택)
+          </p>
+          {problemsInRange.length === 0 ? (
+            <p className="text-gray-500">
+              이 범위에 등록된 문제가 없습니다. 문제집 관리 화면에서 문제 데이터를
+              확인해주세요.
+            </p>
+          ) : (
+            <div className="grid grid-cols-6 sm:grid-cols-8 gap-1">
+              {problemsInRange.map((p) => (
                 <button
-                  key={d}
+                  key={p.id}
                   type="button"
-                  onClick={() => setDifficulty(d)}
+                  onClick={() => toggleWrong(p.problem_number)}
                   className={
-                    "flex-1 rounded border px-3 py-1 " +
-                    (difficulty === d
-                      ? "bg-blue-600 text-white border-blue-600"
+                    "rounded border py-1 text-xs " +
+                    (wrongNumbers.has(p.problem_number)
+                      ? "bg-red-600 text-white border-red-600"
                       : "hover:bg-gray-50")
                   }
                 >
-                  {d}
+                  {p.problem_number}
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="space-y-2 border-t pt-3">
-            <button
-              type="button"
-              onClick={requestDeepAnalysis}
-              disabled={analyzing}
-              className="w-full border rounded px-4 py-2 hover:bg-gray-50 disabled:opacity-40"
-            >
-              {analyzing ? "심층분석 중..." : "심층분석 (Gemini 3.6 Flash)"}
-            </button>
-            {analysisError && <p className="text-red-600">{analysisError}</p>}
-            {analysisPoints.length > 0 && (
-              <ul className="list-disc list-inside space-y-1 bg-gray-50 rounded p-2">
-                {analysisPoints.map((point, i) => (
-                  <li key={i}>{point}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-blue-600 text-white rounded px-4 py-2 w-full transition-colors duration-150 hover:bg-blue-700 disabled:opacity-40"
-          >
-            {saving ? "저장 중..." : "저장"}
-          </button>
-          {saveState.error && <p className="text-red-600">{saveState.error}</p>}
-          {saveState.success && <p className="text-green-600">저장되었습니다.</p>}
-        </form>
+          )}
+        </div>
       )}
+
+      <button
+        onClick={handleSave}
+        disabled={saving || !studentId || !workbookId || !rangeValid}
+        className="bg-blue-600 text-white rounded px-4 py-2 w-full transition-colors duration-150 hover:bg-blue-700 disabled:opacity-40"
+      >
+        {saving ? "저장 중..." : "오답 등록 저장"}
+      </button>
+      {saveError && <p className="text-red-600">{saveError}</p>}
+      {saveSuccess && <p className="text-green-600">저장되었습니다.</p>}
     </div>
   );
 }
