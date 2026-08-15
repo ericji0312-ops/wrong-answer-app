@@ -33,7 +33,6 @@ export default function WorkbookManager({
   const [loadingProblems, setLoadingProblems] = useState(false);
 
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
-  const [editProblemNumber, setEditProblemNumber] = useState("");
   const [editUnit, setEditUnit] = useState("");
   const [editProblemType, setEditProblemType] = useState("");
   const [editDifficulty, setEditDifficulty] = useState<Difficulty>("중");
@@ -147,7 +146,11 @@ export default function WorkbookManager({
   }
 
   function removeDraftRow(index: number) {
-    setDraft((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
+    setDraft((prev) =>
+      prev
+        ? prev.filter((_, i) => i !== index).map((p, i) => ({ ...p, problem_number: i + 1 }))
+        : prev
+    );
   }
 
   async function handleSaveDraft() {
@@ -171,7 +174,6 @@ export default function WorkbookManager({
 
   function startEditProblem(p: WorkbookProblem) {
     setEditingProblemId(p.id);
-    setEditProblemNumber(String(p.problem_number));
     setEditUnit(p.unit);
     setEditProblemType(p.problem_type);
     setEditDifficulty(p.difficulty);
@@ -179,35 +181,25 @@ export default function WorkbookManager({
   }
 
   async function saveEditProblem(id: string) {
-    const problemNumber = Number(editProblemNumber);
-    if (!Number.isInteger(problemNumber) || problemNumber <= 0) {
-      setEditError("문제번호를 올바르게 입력해주세요.");
-      return;
-    }
-
     setEditSaving(true);
     setEditError(null);
     try {
       await updateWorkbookProblem(id, {
-        problem_number: problemNumber,
         unit: editUnit,
         problem_type: editProblemType,
         difficulty: editDifficulty,
       });
       setProblems((prev) =>
-        prev
-          .map((p) =>
-            p.id === id
-              ? {
-                  ...p,
-                  problem_number: problemNumber,
-                  unit: editUnit.trim(),
-                  problem_type: editProblemType.trim(),
-                  difficulty: editDifficulty,
-                }
-              : p
-          )
-          .sort((a, b) => a.problem_number - b.problem_number)
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                unit: editUnit.trim(),
+                problem_type: editProblemType.trim(),
+                difficulty: editDifficulty,
+              }
+            : p
+        )
       );
       setEditingProblemId(null);
     } catch {
@@ -324,14 +316,7 @@ export default function WorkbookManager({
               <div className="max-h-96 overflow-y-auto border rounded divide-y">
                 {draft.map((p, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-2 p-2 text-xs">
-                    <input
-                      type="number"
-                      value={p.problem_number}
-                      onChange={(e) =>
-                        updateDraftRow(i, { problem_number: Number(e.target.value) })
-                      }
-                      className="border rounded px-1 py-0.5 w-16"
-                    />
+                    <span className="w-10 shrink-0 text-center">{p.problem_number}번</span>
                     <input
                       type="text"
                       value={p.unit}
@@ -395,12 +380,7 @@ export default function WorkbookManager({
                 {problems.map((p) =>
                   editingProblemId === p.id ? (
                     <div key={p.id} className="flex flex-wrap items-center gap-2 p-2 text-xs">
-                      <input
-                        type="number"
-                        value={editProblemNumber}
-                        onChange={(e) => setEditProblemNumber(e.target.value)}
-                        className="border rounded px-1 py-0.5 w-16 shrink-0"
-                      />
+                      <span className="w-10 shrink-0 text-center">{p.problem_number}번</span>
                       <input
                         type="text"
                         value={editUnit}

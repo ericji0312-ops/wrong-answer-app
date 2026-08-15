@@ -133,7 +133,12 @@ export async function parseWorkbookPdf(
       };
     })
     .filter((p): p is ParsedWorkbookProblem => p !== null)
-    .sort((a, b) => a.problem_number - b.problem_number);
+    .sort((a, b) => a.problem_number - b.problem_number)
+    // 문제집에 인쇄된 번호를 그대로 믿지 않는다 — 스캔본 OCR 오독으로 번호가
+    // 틀리거나, 챕터마다 번호가 1로 리셋되는 문제집도 있어서 그대로 쓰면
+    // (workbook_id, problem_number) 유니크 제약에 걸린다. 대신 PDF에 등장한
+    // 순서 그대로 1부터 다시 매긴다.
+    .map((p, i) => ({ ...p, problem_number: i + 1 }));
 
   return { problems, rawResponse };
 }
