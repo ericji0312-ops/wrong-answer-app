@@ -60,8 +60,13 @@ export async function parseWorkbookPdfUpload(
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const allowedTags = await getUnitTags(subjectId);
-  const { problems } = await parseWorkbookPdf(buffer, allowedTags);
-  return { problems };
+  try {
+    const { problems } = await parseWorkbookPdf(buffer, allowedTags);
+    return { problems };
+  } catch (error) {
+    console.error("parseWorkbookPdf failed", error);
+    throw error;
+  }
 }
 
 export async function saveWorkbookProblems(
