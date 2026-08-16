@@ -86,6 +86,28 @@ export async function saveWorkbookProblems(
 ) {
   if (problems.length === 0) return;
 
+  // 같은 (파트, 문제번호) 조합이 초안에 두 번 이상 있으면 upsert 한 번에 같은
+  // 행을 두 번 건드리게 되어 Postgres가 "ON CONFLICT DO UPDATE command cannot
+  // affect row a second time" 에러를 던진다. AI가 OCR 오독으로 번호를 중복
+  // 인식하는 경우 실제로 발생하므로, DB에 보내기 전에 미리 걸러서 어디가
+  // 겹치는지 알려준다.
+  const seen = new Map<string, number>();
+  for (const p of problems) {
+    const key = `${p.part}||${p.problem_number}`;
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  const duplicates = [...seen.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([key]) => {
+      const [part, number] = key.split("||");
+      return part ? `${part} ${number}번` : `${number}번`;
+    });
+  if (duplicates.length > 0) {
+    throw new Error(
+      `번호가 중복된 문제가 있습니다: ${duplicates.join(", ")}. 초안에서 번호를 확인해주세요.`
+    );
+  }
+
   const { error } = await supabase.from("workbook_problems").upsert(
     problems.map((p) => ({
       workbook_id: workbookId,

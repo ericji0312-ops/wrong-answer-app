@@ -46,6 +46,7 @@ export default function WorkbookManager({
   const [parseError, setParseError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ParsedWorkbookProblem[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveDraftError, setSaveDraftError] = useState<string | null>(null);
   const [fileKey, setFileKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -154,11 +155,14 @@ export default function WorkbookManager({
   async function handleSaveDraft() {
     if (!selectedWorkbookId || !draft || draft.length === 0) return;
     setSaving(true);
+    setSaveDraftError(null);
     try {
       await saveWorkbookProblems(selectedWorkbookId, draft);
       const refreshed = await getWorkbookProblems(selectedWorkbookId);
       setProblems(refreshed);
       setDraft(null);
+    } catch (error) {
+      setSaveDraftError(error instanceof Error ? error.message : "저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
     }
@@ -389,6 +393,7 @@ export default function WorkbookManager({
                   취소
                 </button>
               </div>
+              {saveDraftError && <p className="text-red-600">{saveDraftError}</p>}
             </div>
           )}
 
