@@ -1,17 +1,26 @@
+import { Fragment } from "react";
 import type { HeatmapCell } from "@/app/actions/wrongAnswers";
 import { DIFFICULTIES } from "@/types/domain";
 
-// 오답률(빨간색이 위험을 뜻하는 단일 계열 magnitude)이므로 레드 계열의
-// 밝→진 단계로 표현한다. red-50~300 사이는 육안으로 거의 구분이 안 돼서
-// 표 전체가 비슷한 연분홍으로 보이는 문제가 있었다 — 고위험 구간은 진한
-// 배경 + 흰 글자까지 벌려서 실제로 "뜨거운" 셀이 한눈에 띄게 한다.
-function rateClasses(rate: number): string {
-  if (rate === 0) return "bg-gray-50 text-gray-400";
-  if (rate < 15) return "bg-red-50 text-red-600";
-  if (rate < 30) return "bg-red-200 text-red-700";
-  if (rate < 50) return "bg-red-400 text-white";
-  if (rate < 70) return "bg-red-600 text-white";
-  return "bg-red-800 text-white";
+// 표가 아니라 진짜 히트맵처럼 보이도록, 셀을 테두리 있는 표 대신 색이 꽉 찬
+// 블록으로 그린다. 오답률(연속된 magnitude)이므로 레드 계열 단일 색조를
+// 밝→진 9단계로 보간해서 칠한다 — 이전의 pill 배지는 배경색이 텍스트
+// 주변에만 살짝 칠해져서 "히트맵"이라는 느낌이 약했다.
+const SEQUENTIAL_RAMP = [
+  "#fef2f2",
+  "#fecaca",
+  "#fca5a5",
+  "#f87171",
+  "#ef4444",
+  "#dc2626",
+  "#b91c1c",
+  "#991b1b",
+  "#7f1d1d",
+];
+
+function rampColor(rate: number) {
+  const index = Math.round((rate / 100) * (SEQUENTIAL_RAMP.length - 1));
+  return SEQUENTIAL_RAMP[Math.min(SEQUENTIAL_RAMP.length - 1, Math.max(0, index))];
 }
 
 export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] }) {
@@ -32,47 +41,54 @@ export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] 
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-white">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b">
-            <th className="p-3 text-left font-medium text-gray-500">유형</th>
-            {DIFFICULTIES.map((d) => (
-              <th key={d} className="p-3 text-center font-medium text-gray-500">
-                {d}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {types.map((type) => (
-            <tr key={type} className="border-b last:border-b-0">
-              <th className="p-3 text-left font-medium whitespace-nowrap">{type}</th>
-              {DIFFICULTIES.map((d) => {
-                const cell = cellByKey.get(`${type}||${d}`);
-                if (!cell || cell.total === 0) {
-                  return (
-                    <td key={d} className="p-3 text-center text-gray-300">
-                      -
-                    </td>
-                  );
-                }
-                const rate = Math.round((cell.wrong / cell.total) * 100);
+    <div className="overflow-x-auto rounded-xl border bg-white p-4">
+      <div
+        className="grid gap-[3px]"
+        style={{
+          gridTemplateColumns: `10rem repeat(${DIFFICULTIES.length}, minmax(4rem, 1fr))`,
+        }}
+      >
+        <div />
+        {DIFFICULTIES.map((d) => (
+          <div key={d} className="pb-2 text-center text-xs font-medium text-gray-500">
+            {d}
+          </div>
+        ))}
+
+        {types.map((type) => (
+          <Fragment key={type}>
+            <div className="flex items-center pr-3 text-sm font-medium">{type}</div>
+            {DIFFICULTIES.map((d) => {
+              const cell = cellByKey.get(`${type}||${d}`);
+              if (!cell || cell.total === 0) {
                 return (
-                  <td key={d} className="p-3 text-center">
-                    <span
-                      className={`inline-block min-w-14 rounded-md px-2 py-1 font-semibold ${rateClasses(rate)}`}
-                      title={`${type} · ${d} — ${cell.wrong}/${cell.total}`}
-                    >
-                      {rate}%
-                    </span>
-                  </td>
+                  <div
+                    key={d}
+                    className="flex h-12 items-center justify-center rounded-sm bg-gray-50 text-xs text-gray-300"
+                  >
+                    -
+                  </div>
                 );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              }
+              const rate = Math.round((cell.wrong / cell.total) * 100);
+              const textLight = rate >= 55;
+              return (
+                <div
+                  key={d}
+                  className="flex h-12 items-center justify-center rounded-sm text-sm font-bold"
+                  style={{
+                    backgroundColor: rampColor(rate),
+                    color: textLight ? "#ffffff" : "#7f1d1d",
+                  }}
+                  title={`${type} · ${d} — ${cell.wrong}/${cell.total}`}
+                >
+                  {rate}%
+                </div>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
     </div>
   );
 }
