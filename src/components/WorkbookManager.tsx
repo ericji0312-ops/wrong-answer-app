@@ -157,7 +157,11 @@ export default function WorkbookManager({
     setSaving(true);
     setSaveDraftError(null);
     try {
-      await saveWorkbookProblems(selectedWorkbookId, draft);
+      const result = await saveWorkbookProblems(selectedWorkbookId, draft);
+      if (result.error) {
+        setSaveDraftError(result.error);
+        return;
+      }
       const refreshed = await getWorkbookProblems(selectedWorkbookId);
       setProblems(refreshed);
       setDraft(null);

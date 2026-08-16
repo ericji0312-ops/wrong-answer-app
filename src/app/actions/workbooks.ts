@@ -80,17 +80,22 @@ export async function parseWorkbookPdfFromStorage(
   }
 }
 
+// Next.js는 프로덕션에서 서버 액션이 throw한 에러 메시지를 클라이언트로
+// 그대로 보내지 않고 "An error occurred in the Server Components render..."
+// 같은 일반 문구로 가려버린다(실제 메시지는 서버 로그의 digest로만 확인
+// 가능). 사용자에게 구체적인 이유(어느 파트·번호가 중복인지)를 보여줘야
+// 하므로, 이 함수는 throw 대신 { error } 를 반환하는 방식을 쓴다.
 export async function saveWorkbookProblems(
   workbookId: string,
   problems: ParsedWorkbookProblem[]
-) {
-  if (problems.length === 0) return;
+): Promise<{ error?: string }> {
+  if (problems.length === 0) return {};
 
   // 같은 (파트, 문제번호) 조합이 초안에 두 번 이상 있으면 upsert 한 번에 같은
   // 행을 두 번 건드리게 되어 Postgres가 "ON CONFLICT DO UPDATE command cannot
-  // affect row a second time" 에러를 던진다. AI가 OCR 오독으로 번호를 중복
-  // 인식하는 경우 실제로 발생하므로, DB에 보내기 전에 미리 걸러서 어디가
-  // 겹치는지 알려준다.
+  // affect row a second time" 에러를 던진다. AI가 파트 구분을 잘못 잡아
+  // 번호를 중복 인식하는 경우 실제로 발생하므로, DB에 보내기 전에 미리
+  // 걸러서 어디가 겹치는지 알려준다.
   const seen = new Map<string, number>();
   for (const p of problems) {
     const key = `${p.part}||${p.problem_number}`;
@@ -103,9 +108,9 @@ export async function saveWorkbookProblems(
       return part ? `${part} ${number}번` : `${number}번`;
     });
   if (duplicates.length > 0) {
-    throw new Error(
-      `번호가 중복된 문제가 있습니다: ${duplicates.join(", ")}. 초안에서 번호를 확인해주세요.`
-    );
+    return {
+      error: `번호가 중복된 문제가 있습니다: ${duplicates.join(", ")}. 초안에서 번호를 확인해주세요.`,
+    };
   }
 
   const { error } = await supabase.from("workbook_problems").upsert(
@@ -121,9 +126,10 @@ export async function saveWorkbookProblems(
     { onConflict: "workbook_id,part,problem_number" }
   );
 
-  if (error) throw new Error(error.message);
+  if (error) return { error: error.message };
   revalidatePath("/workbooks");
   revalidatePath("/register");
+  return {};
 }
 
 export async function updateWorkbookProblem(
