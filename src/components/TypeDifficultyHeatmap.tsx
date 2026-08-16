@@ -2,14 +2,16 @@ import type { HeatmapCell } from "@/app/actions/wrongAnswers";
 import { DIFFICULTIES } from "@/types/domain";
 
 // 오답률(빨간색이 위험을 뜻하는 단일 계열 magnitude)이므로 레드 계열의
-// 밝→진 4단계 pill 배지로 표현한다. 심각/주의/양호 배지와 같은 레드 계열을
-// 재사용해 "빨강 = 나쁨"이라는 의미가 대시보드 전체에서 일관되게 읽히게 한다.
+// 밝→진 단계로 표현한다. red-50~300 사이는 육안으로 거의 구분이 안 돼서
+// 표 전체가 비슷한 연분홍으로 보이는 문제가 있었다 — 고위험 구간은 진한
+// 배경 + 흰 글자까지 벌려서 실제로 "뜨거운" 셀이 한눈에 띄게 한다.
 function rateClasses(rate: number): string {
   if (rate === 0) return "bg-gray-50 text-gray-400";
   if (rate < 15) return "bg-red-50 text-red-600";
-  if (rate < 30) return "bg-red-100 text-red-700";
-  if (rate < 50) return "bg-red-200 text-red-800";
-  return "bg-red-300 text-red-900";
+  if (rate < 30) return "bg-red-200 text-red-700";
+  if (rate < 50) return "bg-red-400 text-white";
+  if (rate < 70) return "bg-red-600 text-white";
+  return "bg-red-800 text-white";
 }
 
 export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] }) {
