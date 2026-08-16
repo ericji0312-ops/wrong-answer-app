@@ -20,7 +20,7 @@ export default function Sidebar() {
     <aside className="flex h-screen w-56 shrink-0 flex-col border-r bg-white sticky top-0">
       <div className="flex items-center gap-2 px-4 py-5">
         <div className="h-7 w-7 shrink-0 rounded-md bg-blue-600" />
-        <span className="font-bold">오답앱</span>
+        <span className="font-bold">오답노트</span>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 text-sm">
