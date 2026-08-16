@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { getSession } from "@/lib/session";
-import LogoutButton from "@/components/LogoutButton";
-import NavLinks from "@/components/NavLinks";
+import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,14 +31,15 @@ export default async function RootLayout({
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        {authenticated && (
-          <nav className="flex items-center justify-between gap-4 border-b px-6 py-3 text-sm font-medium">
-            <NavLinks />
-            <LogoutButton />
-          </nav>
+      <body className="min-h-full bg-gray-50">
+        {authenticated ? (
+          <div className="flex min-h-full">
+            <Sidebar />
+            <main className="min-w-0 flex-1">{children}</main>
+          </div>
+        ) : (
+          children
         )}
-        {children}
       </body>
     </html>
   );

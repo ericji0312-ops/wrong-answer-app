@@ -1,27 +1,15 @@
 import type { HeatmapCell } from "@/app/actions/wrongAnswers";
 import { DIFFICULTIES } from "@/types/domain";
 
-// 오답률(연속 크기값)이므로 단일 색조 sequential 램프를 쓴다 — 앱 전반에서 이미
-// 쓰고 있는 블루 계열(BarList의 막대 색과 동일 hue)의 밝→진 단계.
-const SEQUENTIAL_RAMP = [
-  "#cde2fb",
-  "#b7d3f6",
-  "#9ec5f4",
-  "#86b6ef",
-  "#6da7ec",
-  "#5598e7",
-  "#3987e5",
-  "#2a78d6",
-  "#256abf",
-  "#1c5cab",
-  "#184f95",
-  "#104281",
-  "#0d366b",
-];
-
-function rampColor(rate: number) {
-  const index = Math.round((rate / 100) * (SEQUENTIAL_RAMP.length - 1));
-  return SEQUENTIAL_RAMP[Math.min(SEQUENTIAL_RAMP.length - 1, Math.max(0, index))];
+// 오답률(빨간색이 위험을 뜻하는 단일 계열 magnitude)이므로 레드 계열의
+// 밝→진 4단계 pill 배지로 표현한다. 심각/주의/양호 배지와 같은 레드 계열을
+// 재사용해 "빨강 = 나쁨"이라는 의미가 대시보드 전체에서 일관되게 읽히게 한다.
+function rateClasses(rate: number): string {
+  if (rate === 0) return "bg-gray-50 text-gray-400";
+  if (rate < 15) return "bg-red-50 text-red-600";
+  if (rate < 30) return "bg-red-100 text-red-700";
+  if (rate < 50) return "bg-red-200 text-red-800";
+  return "bg-red-300 text-red-900";
 }
 
 export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] }) {
@@ -42,13 +30,13 @@ export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] 
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="border-collapse text-xs">
+    <div className="overflow-x-auto rounded-xl border bg-white">
+      <table className="w-full border-collapse text-sm">
         <thead>
-          <tr>
-            <th className="p-1 text-left font-medium text-gray-500"></th>
+          <tr className="border-b">
+            <th className="p-3 text-left font-medium text-gray-500">유형</th>
             {DIFFICULTIES.map((d) => (
-              <th key={d} className="p-1 font-medium text-gray-500 text-center w-16">
+              <th key={d} className="p-3 text-center font-medium text-gray-500">
                 {d}
               </th>
             ))}
@@ -56,33 +44,26 @@ export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] 
         </thead>
         <tbody>
           {types.map((type) => (
-            <tr key={type}>
-              <th className="p-1 pr-3 text-left font-medium whitespace-nowrap">{type}</th>
+            <tr key={type} className="border-b last:border-b-0">
+              <th className="p-3 text-left font-medium whitespace-nowrap">{type}</th>
               {DIFFICULTIES.map((d) => {
                 const cell = cellByKey.get(`${type}||${d}`);
                 if (!cell || cell.total === 0) {
                   return (
-                    <td key={d} className="p-1">
-                      <div className="w-16 h-10 rounded flex items-center justify-center bg-gray-50 text-gray-300 border">
-                        -
-                      </div>
+                    <td key={d} className="p-3 text-center text-gray-300">
+                      -
                     </td>
                   );
                 }
                 const rate = Math.round((cell.wrong / cell.total) * 100);
-                const textDark = rate < 50;
                 return (
-                  <td key={d} className="p-1">
-                    <div
-                      className="w-16 h-10 rounded flex items-center justify-center"
-                      style={{
-                        backgroundColor: rampColor(rate),
-                        color: textDark ? "#1a1a1a" : "#ffffff",
-                      }}
+                  <td key={d} className="p-3 text-center">
+                    <span
+                      className={`inline-block min-w-14 rounded-md px-2 py-1 font-semibold ${rateClasses(rate)}`}
                       title={`${type} · ${d} — ${cell.wrong}/${cell.total}`}
                     >
-                      <span className="font-semibold">{rate}%</span>
-                    </div>
+                      {rate}%
+                    </span>
                   </td>
                 );
               })}
