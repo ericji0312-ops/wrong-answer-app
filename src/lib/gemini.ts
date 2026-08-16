@@ -31,6 +31,8 @@ function buildCategoryOptions(allowedTags: UnitTag[]): CategoryOption[] {
 
 export interface ParsedWorkbookProblem {
   problem_number: number;
+  part: string;
+  part_order: number;
   unit: string;
   problem_type: string;
   difficulty: "하" | "중" | "상" | "최상";
@@ -51,8 +53,14 @@ ${listText}`
 실제로 그 문제가 다루는 구체적인 스킬/개념으로 작성해줘.`;
 
   return `이 문제집 PDF 안에 있는 모든 문제를 처음부터 끝까지 순서대로 찾아서,
-문제마다 (1) 문제번호 (2) 단원 (3) 세부 유형 (4) 난이도를 배열로 반환해줘.
+문제마다 (1) 파트 (2) 문제번호 (3) 단원 (4) 세부 유형 (5) 난이도를 배열로 반환해줘.
+- 이 문제집이 "개념&핵심기출", "고난도 문제", "최고수준 문제"처럼 여러 파트/섹션으로
+  나뉘어 있고 파트마다 문제 번호가 다시 1번부터 시작한다면, 각 문제가 속한 파트
+  제목을 인쇄된 표기 그대로 part에 넣어줘. 파트 구분 없이 처음부터 끝까지 번호가
+  하나로 쭉 이어지는 문제집이면 모든 문제의 part를 빈 문자열("")로 둬.
 - problem_number는 문제집에 표기된 번호를 정수로 변환해서 넣어줘 (예: "12번" → 12).
+  파트가 있는 문제집이면 그 파트 안에서의 번호를 그대로 쓰면 돼(파트마다 1번부터
+  시작해도 됨) — 전체를 통틀어 다시 매길 필요 없어.
 - 지문/해설/광고 페이지 등 실제 문제가 아닌 부분은 건너뛰고, 문제만 빠짐없이 순서대로 포함해줘.
 ${listSection}
 ${DIFFICULTY_GUIDE}`;
@@ -72,21 +80,23 @@ export async function parseWorkbookPdf(
     ? {
         type: Type.OBJECT,
         properties: {
+          part: { type: Type.STRING },
           problem_number: { type: Type.INTEGER },
           category: { type: Type.STRING, enum: options.map((o) => o.key) },
           difficulty: { type: Type.STRING, enum: ["하", "중", "상", "최상"] },
         },
-        required: ["problem_number", "category", "difficulty"],
+        required: ["part", "problem_number", "category", "difficulty"],
       }
     : {
         type: Type.OBJECT,
         properties: {
+          part: { type: Type.STRING },
           problem_number: { type: Type.INTEGER },
           unit: { type: Type.STRING },
           problem_type: { type: Type.STRING },
           difficulty: { type: Type.STRING, enum: ["하", "중", "상", "최상"] },
         },
-        required: ["problem_number", "unit", "problem_type", "difficulty"],
+        required: ["part", "problem_number", "unit", "problem_type", "difficulty"],
       };
 
   const response = await ai.models.generateContent({
@@ -109,16 +119,25 @@ export async function parseWorkbookPdf(
   const rawResponse = response.text ?? "";
   const parsed = JSON.parse(rawResponse) as Array<Record<string, unknown>>;
 
+  const partOrder = new Map<string, number>();
+  function orderOfPart(part: string): number {
+    if (!partOrder.has(part)) partOrder.set(part, partOrder.size);
+    return partOrder.get(part)!;
+  }
+
   const problems: ParsedWorkbookProblem[] = parsed
     .map((item) => {
       const problemNumber = Number(item.problem_number);
       if (!Number.isFinite(problemNumber)) return null;
+      const part = typeof item.part === "string" ? item.part.trim() : "";
       const difficulty = item.difficulty as ParsedWorkbookProblem["difficulty"];
 
       if (useConstrainedList) {
         const matched = optionsByKey.get(item.category as string);
         if (!matched) return null;
         return {
+          part,
+          part_order: orderOfPart(part),
           problem_number: problemNumber,
           unit: matched.unit,
           problem_type: matched.problem_type,
@@ -126,19 +145,19 @@ export async function parseWorkbookPdf(
         };
       }
       return {
+        part,
+        part_order: orderOfPart(part),
         problem_number: problemNumber,
         unit: item.unit as string,
         problem_type: item.problem_type as string,
         difficulty,
       };
     })
-    .filter((p): p is ParsedWorkbookProblem => p !== null)
-    .sort((a, b) => a.problem_number - b.problem_number)
-    // 문제집에 인쇄된 번호를 그대로 믿지 않는다 — 스캔본 OCR 오독으로 번호가
-    // 틀리거나, 챕터마다 번호가 1로 리셋되는 문제집도 있어서 그대로 쓰면
-    // (workbook_id, problem_number) 유니크 제약에 걸린다. 대신 PDF에 등장한
-    // 순서 그대로 1부터 다시 매긴다.
-    .map((p, i) => ({ ...p, problem_number: i + 1 }));
+    // PDF에 등장한 순서를 그대로 유지한다 — 파트가 있는 문제집은 번호가
+    // 파트마다 리셋되므로, 전체를 problem_number 기준으로 재정렬하면
+    // 파트가 뒤섞인다. 파트/번호는 문제집에 표기된 값을 그대로 신뢰하고,
+    // 저장 시 (workbook_id, part, problem_number) 단위로 유니크하게 관리한다.
+    .filter((p): p is ParsedWorkbookProblem => p !== null);
 
   return { problems, rawResponse };
 }

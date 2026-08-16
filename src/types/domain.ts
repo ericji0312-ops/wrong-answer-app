@@ -49,6 +49,8 @@ export interface Workbook {
 export interface WorkbookProblem {
   id: string;
   workbook_id: string;
+  part: string;
+  part_order: number;
   problem_number: number;
   unit: string;
   problem_type: string;
@@ -60,6 +62,7 @@ export interface AttemptSession {
   id: string;
   student_id: string;
   workbook_id: string;
+  part: string;
   range_start: number;
   range_end: number;
   recorded_at: string;

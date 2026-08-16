@@ -61,6 +61,7 @@ export async function getWrongRateBreakdown(
     const inRange = (allProblems ?? []).filter(
       (p) =>
         p.workbook_id === session.workbook_id &&
+        p.part === session.part &&
         p.problem_number >= session.range_start &&
         p.problem_number <= session.range_end
     );
@@ -110,6 +111,7 @@ export async function getWrongRateBreakdown(
 export interface SaveWorkbookWrongAnswersInput {
   studentId: string;
   workbookId: string;
+  part: string;
   rangeStart: number;
   rangeEnd: number;
   wrongProblemNumbers: number[];
@@ -118,6 +120,7 @@ export interface SaveWorkbookWrongAnswersInput {
 export async function saveWorkbookWrongAnswers({
   studentId,
   workbookId,
+  part,
   rangeStart,
   rangeEnd,
   wrongProblemNumbers,
@@ -133,6 +136,7 @@ export async function saveWorkbookWrongAnswers({
     .insert({
       student_id: studentId,
       workbook_id: workbookId,
+      part,
       range_start: rangeStart,
       range_end: rangeEnd,
     })
@@ -149,6 +153,7 @@ export async function saveWorkbookWrongAnswers({
     .from("workbook_problems")
     .select("*")
     .eq("workbook_id", workbookId)
+    .eq("part", part)
     .in("problem_number", wrongProblemNumbers);
 
   if (problemsError) throw new Error(problemsError.message);

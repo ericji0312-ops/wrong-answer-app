@@ -237,3 +237,30 @@ create policy "workbook-pdfs anon insert"
 create policy "workbook-pdfs anon delete"
   on storage.objects for delete
   using (bucket_id = 'workbook-pdfs');
+
+-- ============================================================
+-- 마이그레이션: 문제집 파트(섹션) 지원
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+--
+-- "일품" 같은 문제집은 개념&핵심기출/고난도 문제/최고수준 문제처럼 여러
+-- 파트로 나뉘고, 파트마다 문제 번호가 다시 1번부터 시작한다. 기존
+-- (workbook_id, problem_number) 유니크 제약으로는 이런 문제집을 인쇄된
+-- 번호 그대로 저장할 수 없어서, 파트가 없는 척 PDF 등장 순서로 전체를
+-- 강제 재넘버링했었다(이전 마이그레이션 참고). 그 결과 채점할 때 책에
+-- 보이는 번호와 DB에 저장된 번호가 달라져 오답 등록이 어려워졌다.
+--
+-- 파트 컬럼을 추가하고 유니크 제약을 (workbook_id, part, problem_number)로
+-- 넓혀서, 파트별로 번호가 리셋되는 걸 정상적으로 허용한다. 파트 구분이
+-- 없는 문제집은 part=''로 두면 기존과 동일하게 동작한다. part_order는
+-- PDF에 파트가 처음 등장한 순서를 저장해서, 목록을 번호가 아니라 책
+-- 순서(파트 → 번호)대로 보여줄 수 있게 한다.
+-- ============================================================
+
+alter table workbook_problems add column if not exists part text not null default '';
+alter table workbook_problems add column if not exists part_order integer not null default 0;
+
+alter table workbook_problems drop constraint if exists workbook_problems_workbook_id_problem_number_key;
+alter table workbook_problems add constraint workbook_problems_workbook_id_part_problem_number_key
+  unique (workbook_id, part, problem_number);
+
+alter table attempt_sessions add column if not exists part text not null default '';

@@ -19,6 +19,7 @@ export default function RegisterForm({
   const [studentId, setStudentId] = useState(students[0]?.id ?? "");
   const [subjectId, setSubjectId] = useState("");
   const [workbookId, setWorkbookId] = useState("");
+  const [part, setPart] = useState("");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [problems, setProblems] = useState<WorkbookProblem[]>([]);
@@ -50,6 +51,7 @@ export default function RegisterForm({
 
   useEffect(() => {
     setProblems([]);
+    setPart("");
     setWrongNumbers(new Set());
     setSaveSuccess(false);
     if (!workbookId) return;
@@ -57,7 +59,10 @@ export default function RegisterForm({
     setLoadingProblems(true);
     getWorkbookProblems(workbookId)
       .then((data) => {
-        if (!cancelled) setProblems(data);
+        if (!cancelled) {
+          setProblems(data);
+          setPart(data[0]?.part ?? "");
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingProblems(false);
@@ -67,6 +72,18 @@ export default function RegisterForm({
     };
   }, [workbookId]);
 
+  const parts = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const p of problems) {
+      if (!seen.has(p.part)) {
+        seen.add(p.part);
+        list.push(p.part);
+      }
+    }
+    return list;
+  }, [problems]);
+
   const start = Number(rangeStart);
   const end = Number(rangeEnd);
   const rangeValid =
@@ -74,8 +91,10 @@ export default function RegisterForm({
 
   const problemsInRange = useMemo(() => {
     if (!rangeValid) return [];
-    return problems.filter((p) => p.problem_number >= start && p.problem_number <= end);
-  }, [problems, rangeValid, start, end]);
+    return problems.filter(
+      (p) => p.part === part && p.problem_number >= start && p.problem_number <= end
+    );
+  }, [problems, rangeValid, start, end, part]);
 
   function toggleWrong(problemNumber: number) {
     setWrongNumbers((prev) => {
@@ -94,6 +113,7 @@ export default function RegisterForm({
       await saveWorkbookWrongAnswers({
         studentId,
         workbookId,
+        part,
         rangeStart: start,
         rangeEnd: end,
         wrongProblemNumbers: [...wrongNumbers],
@@ -178,6 +198,26 @@ export default function RegisterForm({
           </p>
         )}
       </div>
+
+      {parts.length > 1 && (
+        <div className="space-y-1">
+          <label className="block font-medium">파트</label>
+          <select
+            value={part}
+            onChange={(e) => {
+              setPart(e.target.value);
+              setWrongNumbers(new Set());
+            }}
+            className="border rounded px-2 py-1 w-full"
+          >
+            {parts.map((p) => (
+              <option key={p} value={p}>
+                {p || "(파트 구분 없음)"}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="space-y-1">
         <label className="block font-medium">이번에 푼 범위</label>

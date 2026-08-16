@@ -43,6 +43,7 @@ export async function getWorkbookProblems(workbookId: string): Promise<WorkbookP
     .from("workbook_problems")
     .select("*")
     .eq("workbook_id", workbookId)
+    .order("part_order", { ascending: true })
     .order("problem_number", { ascending: true });
 
   if (error) throw new Error(error.message);
@@ -88,12 +89,14 @@ export async function saveWorkbookProblems(
   const { error } = await supabase.from("workbook_problems").upsert(
     problems.map((p) => ({
       workbook_id: workbookId,
+      part: p.part,
+      part_order: p.part_order,
       problem_number: p.problem_number,
       unit: p.unit,
       problem_type: p.problem_type,
       difficulty: p.difficulty,
     })),
-    { onConflict: "workbook_id,problem_number" }
+    { onConflict: "workbook_id,part,problem_number" }
   );
 
   if (error) throw new Error(error.message);
@@ -103,17 +106,26 @@ export async function saveWorkbookProblems(
 
 export async function updateWorkbookProblem(
   id: string,
-  patch: { unit: string; problem_type: string; difficulty: string }
+  patch: { part: string; problem_number: number; unit: string; problem_type: string; difficulty: string }
 ) {
   const unit = patch.unit.trim();
   const problemType = patch.problem_type.trim();
   if (!unit || !problemType) {
     throw new Error("단원과 세부 유형을 입력해주세요.");
   }
+  if (!Number.isInteger(patch.problem_number)) {
+    throw new Error("문제 번호를 올바르게 입력해주세요.");
+  }
 
   const { error } = await supabase
     .from("workbook_problems")
-    .update({ unit, problem_type: problemType, difficulty: patch.difficulty })
+    .update({
+      part: patch.part.trim(),
+      problem_number: patch.problem_number,
+      unit,
+      problem_type: problemType,
+      difficulty: patch.difficulty,
+    })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

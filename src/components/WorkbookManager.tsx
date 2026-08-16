@@ -33,6 +33,8 @@ export default function WorkbookManager({
   const [loadingProblems, setLoadingProblems] = useState(false);
 
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
+  const [editPart, setEditPart] = useState("");
+  const [editProblemNumber, setEditProblemNumber] = useState("");
   const [editUnit, setEditUnit] = useState("");
   const [editProblemType, setEditProblemType] = useState("");
   const [editDifficulty, setEditDifficulty] = useState<Difficulty>("중");
@@ -146,11 +148,7 @@ export default function WorkbookManager({
   }
 
   function removeDraftRow(index: number) {
-    setDraft((prev) =>
-      prev
-        ? prev.filter((_, i) => i !== index).map((p, i) => ({ ...p, problem_number: i + 1 }))
-        : prev
-    );
+    setDraft((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
   }
 
   async function handleSaveDraft() {
@@ -174,6 +172,8 @@ export default function WorkbookManager({
 
   function startEditProblem(p: WorkbookProblem) {
     setEditingProblemId(p.id);
+    setEditPart(p.part);
+    setEditProblemNumber(String(p.problem_number));
     setEditUnit(p.unit);
     setEditProblemType(p.problem_type);
     setEditDifficulty(p.difficulty);
@@ -181,10 +181,17 @@ export default function WorkbookManager({
   }
 
   async function saveEditProblem(id: string) {
+    const problemNumber = Number(editProblemNumber);
+    if (!Number.isInteger(problemNumber)) {
+      setEditError("문제 번호를 올바르게 입력해주세요.");
+      return;
+    }
     setEditSaving(true);
     setEditError(null);
     try {
       await updateWorkbookProblem(id, {
+        part: editPart,
+        problem_number: problemNumber,
         unit: editUnit,
         problem_type: editProblemType,
         difficulty: editDifficulty,
@@ -194,6 +201,8 @@ export default function WorkbookManager({
           p.id === id
             ? {
                 ...p,
+                part: editPart.trim(),
+                problem_number: problemNumber,
                 unit: editUnit.trim(),
                 problem_type: editProblemType.trim(),
                 difficulty: editDifficulty,
@@ -316,7 +325,21 @@ export default function WorkbookManager({
               <div className="max-h-96 overflow-y-auto border rounded divide-y">
                 {draft.map((p, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-2 p-2 text-xs">
-                    <span className="w-10 shrink-0 text-center">{p.problem_number}번</span>
+                    <input
+                      type="text"
+                      value={p.part}
+                      onChange={(e) => updateDraftRow(i, { part: e.target.value })}
+                      placeholder="파트(없으면 비워둠)"
+                      className="border rounded px-1 py-0.5 w-24 shrink-0"
+                    />
+                    <input
+                      type="number"
+                      value={p.problem_number}
+                      onChange={(e) =>
+                        updateDraftRow(i, { problem_number: Number(e.target.value) })
+                      }
+                      className="border rounded px-1 py-0.5 w-14 shrink-0 text-center"
+                    />
                     <input
                       type="text"
                       value={p.unit}
@@ -377,10 +400,30 @@ export default function WorkbookManager({
             )}
             {!loadingProblems && problems.length > 0 && (
               <div className="max-h-96 overflow-y-auto border rounded divide-y">
-                {problems.map((p) =>
-                  editingProblemId === p.id ? (
-                    <div key={p.id} className="flex flex-wrap items-center gap-2 p-2 text-xs">
-                      <span className="w-10 shrink-0 text-center">{p.problem_number}번</span>
+                {problems.map((p, i) => {
+                  const showPartHeader = i === 0 || problems[i - 1].part !== p.part;
+                  return (
+                  <div key={p.id}>
+                    {showPartHeader && p.part && (
+                      <div className="bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">
+                        {p.part}
+                      </div>
+                    )}
+                    {editingProblemId === p.id ? (
+                    <div className="flex flex-wrap items-center gap-2 p-2 text-xs">
+                      <input
+                        type="text"
+                        value={editPart}
+                        onChange={(e) => setEditPart(e.target.value)}
+                        placeholder="파트(없으면 비워둠)"
+                        className="border rounded px-1 py-0.5 w-24 shrink-0"
+                      />
+                      <input
+                        type="number"
+                        value={editProblemNumber}
+                        onChange={(e) => setEditProblemNumber(e.target.value)}
+                        className="border rounded px-1 py-0.5 w-14 shrink-0 text-center"
+                      />
                       <input
                         type="text"
                         value={editUnit}
@@ -419,9 +462,8 @@ export default function WorkbookManager({
                       </button>
                       {editError && <p className="text-red-600 w-full">{editError}</p>}
                     </div>
-                  ) : (
+                    ) : (
                     <div
-                      key={p.id}
                       className="flex items-center justify-between gap-2 p-2 text-xs"
                     >
                       <span>
@@ -442,8 +484,10 @@ export default function WorkbookManager({
                         </button>
                       </div>
                     </div>
-                  )
-                )}
+                    )}
+                  </div>
+                  );
+                })}
               </div>
             )}
           </div>
