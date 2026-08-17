@@ -13,3 +13,4 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const WRONG_ANSWER_BUCKET = "wrong-answers";
 export const WORKBOOK_PDF_BUCKET = "workbook-pdfs";
+export const WORKBOOK_PAGE_BUCKET = "workbook-pages";

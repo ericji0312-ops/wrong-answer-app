@@ -55,6 +55,7 @@ export interface WorkbookProblem {
   unit: string;
   problem_type: string;
   difficulty: Difficulty;
+  page_number: number | null;
   created_at: string;
 }
 

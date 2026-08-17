@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabase, WORKBOOK_PDF_BUCKET } from "@/lib/supabaseClient";
+import { supabase, WORKBOOK_PDF_BUCKET, WORKBOOK_PAGE_BUCKET } from "@/lib/supabaseClient";
 import { parseWorkbookPdf, type ParsedWorkbookProblem } from "@/lib/gemini";
+import { renderPdfPagesToJpeg } from "@/lib/pdfPageImages";
 import { getUnitTags } from "@/app/actions/unitTags";
 import type { Workbook, WorkbookProblem } from "@/types/domain";
 
@@ -34,6 +35,14 @@ export async function createWorkbook(subjectId: string, title: string): Promise<
 export async function deleteWorkbook(id: string) {
   const { error } = await supabase.from("workbooks").delete().eq("id", id);
   if (error) throw new Error(error.message);
+
+  const { data: pageFiles } = await supabase.storage.from(WORKBOOK_PAGE_BUCKET).list(id);
+  if (pageFiles && pageFiles.length > 0) {
+    await supabase.storage
+      .from(WORKBOOK_PAGE_BUCKET)
+      .remove(pageFiles.map((f) => `${id}/${f.name}`));
+  }
+
   revalidatePath("/workbooks");
   revalidatePath("/register");
 }
@@ -56,6 +65,7 @@ export async function getWorkbookProblems(workbookId: string): Promise<WorkbookP
 // PDF를 서버 액션에 직접(FormData로) 실어 보낼 수 없기 때문이다.
 export async function parseWorkbookPdfFromStorage(
   subjectId: string,
+  workbookId: string,
   storagePath: string
 ): Promise<{ problems: ParsedWorkbookProblem[] }> {
   const {
@@ -71,6 +81,31 @@ export async function parseWorkbookPdfFromStorage(
 
     const allowedTags = await getUnitTags(subjectId);
     const { problems } = await parseWorkbookPdf(buffer, allowedTags);
+
+    // 대시보드에서 틀린 문제를 클릭했을 때 원본 이미지를 보여줄 수 있도록,
+    // 문제가 있는 페이지만 JPEG로 한 번 렌더링해서 영구 버킷에 올려둔다.
+    // 원본 PDF는 임시 저장소라 곧 삭제되므로 지금 아니면 다시 만들 기회가 없다.
+    try {
+      const pageImages = await renderPdfPagesToJpeg(
+        buffer,
+        problems.map((p) => p.page_number)
+      );
+      await Promise.all(
+        [...pageImages.entries()].map(([pageNumber, jpeg]) =>
+          supabase.storage
+            .from(WORKBOOK_PAGE_BUCKET)
+            .upload(`${workbookId}/${pageNumber}.jpg`, jpeg, {
+              contentType: "image/jpeg",
+              upsert: true,
+            })
+        )
+      );
+    } catch (error) {
+      // 페이지 이미지 렌더링/업로드가 실패해도 문제 분류 자체는 이미 끝났으니
+      // 등록 흐름을 막지 않는다 — 이미지 없이 계속 진행한다.
+      console.error("renderPdfPagesToJpeg failed", error);
+    }
+
     return { problems };
   } catch (error) {
     console.error("parseWorkbookPdf failed", error);
@@ -122,6 +157,7 @@ export async function saveWorkbookProblems(
       unit: p.unit,
       problem_type: p.problem_type,
       difficulty: p.difficulty,
+      page_number: p.page_number,
     })),
     { onConflict: "workbook_id,part,problem_number" }
   );

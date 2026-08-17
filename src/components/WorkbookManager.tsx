@@ -103,7 +103,7 @@ export default function WorkbookManager({
 
   async function handleParse() {
     const file = fileInputRef.current?.files?.[0];
-    if (!file) return;
+    if (!file || !selectedWorkbookId) return;
 
     setParseError(null);
     setDraft(null);
@@ -125,7 +125,11 @@ export default function WorkbookManager({
 
     setParsing(true);
     try {
-      const { problems: parsed } = await parseWorkbookPdfFromStorage(subjectId, storagePath);
+      const { problems: parsed } = await parseWorkbookPdfFromStorage(
+        subjectId,
+        selectedWorkbookId,
+        storagePath
+      );
       if (parsed.length === 0) {
         setParseError("PDF에서 문제를 인식하지 못했습니다.");
       } else {
