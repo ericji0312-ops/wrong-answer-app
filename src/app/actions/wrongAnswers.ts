@@ -128,6 +128,7 @@ export interface AttemptSessionHistoryItem {
   rangeEnd: number;
   recordedAt: string;
   wrongCount: number;
+  wrongProblemNumbers: number[];
 }
 
 export async function getAttemptSessionHistory(
@@ -147,15 +148,40 @@ export async function getAttemptSessionHistory(
   const sessionIds = sessions.map((s) => s.id);
   const { data: wrongRows, error: wrongError } = await supabase
     .from("wrong_answers")
-    .select("attempt_session_id")
+    .select("attempt_session_id, workbook_problem_id")
     .in("attempt_session_id", sessionIds);
 
   if (wrongError) throw new Error(wrongError.message);
 
+  const problemIds = [
+    ...new Set(
+      (wrongRows ?? [])
+        .map((row) => row.workbook_problem_id)
+        .filter((id): id is string => id !== null)
+    ),
+  ];
+
+  const { data: problems, error: problemsError } =
+    problemIds.length > 0
+      ? await supabase.from("workbook_problems").select("id, problem_number").in("id", problemIds)
+      : { data: [], error: null };
+  if (problemsError) throw new Error(problemsError.message);
+
+  const problemNumberById = new Map((problems ?? []).map((p) => [p.id, p.problem_number]));
+
   const wrongCounts = new Map<string, number>();
+  const wrongNumbersBySession = new Map<string, number[]>();
   for (const row of wrongRows ?? []) {
     if (!row.attempt_session_id) continue;
     wrongCounts.set(row.attempt_session_id, (wrongCounts.get(row.attempt_session_id) ?? 0) + 1);
+    const problemNumber = row.workbook_problem_id
+      ? problemNumberById.get(row.workbook_problem_id)
+      : undefined;
+    if (problemNumber !== undefined) {
+      const list = wrongNumbersBySession.get(row.attempt_session_id) ?? [];
+      list.push(problemNumber);
+      wrongNumbersBySession.set(row.attempt_session_id, list);
+    }
   }
 
   return sessions.map((s) => ({
@@ -166,6 +192,7 @@ export async function getAttemptSessionHistory(
     rangeEnd: s.range_end,
     recordedAt: s.recorded_at,
     wrongCount: wrongCounts.get(s.id) ?? 0,
+    wrongProblemNumbers: (wrongNumbersBySession.get(s.id) ?? []).sort((a, b) => a - b),
   }));
 }
 

@@ -36,6 +36,7 @@ export default function RegisterForm({
   const [history, setHistory] = useState<AttemptSessionHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const workbookTitle = useCallback(
     (workbookId: string) => workbooks.find((w) => w.id === workbookId)?.title ?? "(삭제된 문제집)",
@@ -338,25 +339,38 @@ export default function RegisterForm({
         ) : (
           <ul className="divide-y rounded border">
             {history.map((h) => (
-              <li key={h.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                <div>
-                  <p className="font-medium">
-                    {workbookTitle(h.workbookId)}
-                    {h.part && ` · ${h.part}`}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {h.rangeStart}~{h.rangeEnd}번 · 오답 {h.wrongCount}개 ·{" "}
-                    {new Date(h.recordedAt).toLocaleDateString("ko-KR")}
-                  </p>
+              <li key={h.id} className="px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId((prev) => (prev === h.id ? null : h.id))}
+                    className="flex-1 text-left"
+                  >
+                    <p className="font-medium">
+                      {workbookTitle(h.workbookId)}
+                      {h.part && ` · ${h.part}`}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {h.rangeStart}~{h.rangeEnd}번 · 오답 {h.wrongCount}개 ·{" "}
+                      {new Date(h.recordedAt).toLocaleDateString("ko-KR")}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(h.id)}
+                    disabled={deletingId === h.id}
+                    className="shrink-0 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+                  >
+                    {deletingId === h.id ? "삭제 중..." : "삭제"}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(h.id)}
-                  disabled={deletingId === h.id}
-                  className="shrink-0 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
-                >
-                  {deletingId === h.id ? "삭제 중..." : "삭제"}
-                </button>
+                {expandedId === h.id && (
+                  <p className="mt-2 text-xs text-gray-600">
+                    {h.wrongProblemNumbers.length === 0
+                      ? "틀린 문제가 없습니다."
+                      : `틀린 번호: ${h.wrongProblemNumbers.join(", ")}`}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
