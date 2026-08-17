@@ -1,7 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { getWrongRateBreakdown, type WrongRateBreakdown } from "@/app/actions/wrongAnswers";
+import {
+  getWrongProblemsByTypeDifficulty,
+  getWrongRateBreakdown,
+  type WrongProblemDetail,
+  type WrongRateBreakdown,
+} from "@/app/actions/wrongAnswers";
 import TypeDifficultyHeatmap from "@/components/TypeDifficultyHeatmap";
 import type { Student, Subject } from "@/types/domain";
 
@@ -32,6 +37,11 @@ export default function Dashboard({
     typeDifficultyRates: [],
   });
   const [loadingRates, setLoadingRates] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<{ problemType: string; difficulty: string } | null>(
+    null
+  );
+  const [wrongProblems, setWrongProblems] = useState<WrongProblemDetail[]>([]);
+  const [loadingWrongProblems, setLoadingWrongProblems] = useState(false);
 
   const availableSubjects = useMemo(
     () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
@@ -65,6 +75,39 @@ export default function Dashboard({
       cancelled = true;
     };
   }, [studentId, subjectId, period]);
+
+  useEffect(() => {
+    setSelectedCell(null);
+  }, [studentId, subjectId, period]);
+
+  useEffect(() => {
+    if (!selectedCell || !studentId) {
+      setWrongProblems([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingWrongProblems(true);
+    const sinceIso =
+      period === "1m"
+        ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        : undefined;
+    getWrongProblemsByTypeDifficulty(
+      studentId,
+      selectedCell.problemType,
+      selectedCell.difficulty,
+      subjectId,
+      sinceIso
+    )
+      .then((data) => {
+        if (!cancelled) setWrongProblems(data);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingWrongProblems(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCell, studentId, subjectId, period]);
 
   const unitGroups = useMemo(() => {
     const groups = new Map<string, { unit: string; items: { label: string; rate: number }[] }>();
@@ -295,10 +338,57 @@ export default function Dashboard({
 
       <section className="space-y-2">
         <h2 className="font-semibold">유형별 · 난이도별 오답률</h2>
+        <p className="text-xs text-gray-400">셀을 클릭하면 해당 유형·난이도의 틀린 문제를 볼 수 있습니다</p>
         {loadingRates ? (
           <p className="text-gray-500">불러오는 중...</p>
         ) : (
-          <TypeDifficultyHeatmap cells={wrongRates.typeDifficultyRates} />
+          <TypeDifficultyHeatmap
+            cells={wrongRates.typeDifficultyRates}
+            selected={selectedCell}
+            onCellClick={(problemType, difficulty) =>
+              setSelectedCell((prev) =>
+                prev?.problemType === problemType && prev?.difficulty === difficulty
+                  ? null
+                  : { problemType, difficulty }
+              )
+            }
+          />
+        )}
+
+        {selectedCell && (
+          <div className="rounded-xl border bg-white p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold">
+                {selectedCell.problemType} · {selectedCell.difficulty} 틀린 문제
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedCell(null)}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                닫기
+              </button>
+            </div>
+            {loadingWrongProblems ? (
+              <p className="mt-3 text-gray-500">불러오는 중...</p>
+            ) : wrongProblems.length === 0 ? (
+              <p className="mt-3 text-gray-500">해당하는 틀린 문제가 없습니다.</p>
+            ) : (
+              <ul className="mt-3 divide-y">
+                {wrongProblems.map((p, i) => (
+                  <li key={`${p.workbookId}-${p.part}-${p.problemNumber}-${i}`} className="flex items-center justify-between py-2">
+                    <span>
+                      {p.workbookTitle}
+                      {p.part && ` · ${p.part}`} · {p.problemNumber}번
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {new Date(p.recordedAt).toLocaleDateString("ko-KR")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </section>
     </div>

@@ -23,7 +23,15 @@ function rampColor(rate: number) {
   return SEQUENTIAL_RAMP[Math.min(SEQUENTIAL_RAMP.length - 1, Math.max(0, index))];
 }
 
-export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] }) {
+export default function TypeDifficultyHeatmap({
+  cells,
+  onCellClick,
+  selected,
+}: {
+  cells: HeatmapCell[];
+  onCellClick?: (problemType: string, difficulty: string) => void;
+  selected?: { problemType: string; difficulty: string } | null;
+}) {
   const wrongByType = new Map<string, number>();
   for (const c of cells) {
     wrongByType.set(c.problem_type, (wrongByType.get(c.problem_type) ?? 0) + c.wrong);
@@ -72,10 +80,18 @@ export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] 
               }
               const rate = Math.round((cell.wrong / cell.total) * 100);
               const textLight = rate >= 55;
+              const isSelected = selected?.problemType === type && selected?.difficulty === d;
               return (
-                <div
+                <button
                   key={d}
-                  className="flex h-12 items-center justify-center rounded-sm text-sm font-bold"
+                  type="button"
+                  onClick={() => onCellClick?.(type, d)}
+                  disabled={!onCellClick || cell.wrong === 0}
+                  className={
+                    "flex h-12 items-center justify-center rounded-sm text-sm font-bold transition-shadow " +
+                    (onCellClick && cell.wrong > 0 ? "cursor-pointer hover:ring-2 hover:ring-blue-400" : "") +
+                    (isSelected ? " ring-2 ring-blue-600" : "")
+                  }
                   style={{
                     backgroundColor: rampColor(rate),
                     color: textLight ? "#ffffff" : "#7f1d1d",
@@ -83,7 +99,7 @@ export default function TypeDifficultyHeatmap({ cells }: { cells: HeatmapCell[] 
                   title={`${type} · ${d} — ${cell.wrong}/${cell.total}`}
                 >
                   {rate}%
-                </div>
+                </button>
               );
             })}
           </Fragment>

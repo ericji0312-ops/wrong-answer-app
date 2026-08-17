@@ -120,6 +120,88 @@ export async function getWrongRateBreakdown(
   return { unitTypeRates, typeDifficultyRates };
 }
 
+export interface WrongProblemDetail {
+  workbookId: string;
+  workbookTitle: string;
+  part: string;
+  problemNumber: number;
+  recordedAt: string;
+}
+
+export async function getWrongProblemsByTypeDifficulty(
+  studentId: string,
+  problemType: string,
+  difficulty: string,
+  subjectId?: string,
+  sinceIso?: string
+): Promise<WrongProblemDetail[]> {
+  if (!studentId) return [];
+
+  const { data: wrongRows, error: wrongError } = await supabase
+    .from("wrong_answers")
+    .select("attempt_session_id, workbook_problem_id")
+    .eq("student_id", studentId)
+    .eq("problem_type", problemType)
+    .eq("difficulty", difficulty);
+  if (wrongError) throw new Error(wrongError.message);
+  if (!wrongRows || wrongRows.length === 0) return [];
+
+  const problemIds = [
+    ...new Set(wrongRows.map((r) => r.workbook_problem_id).filter((id): id is string => id !== null)),
+  ];
+  const sessionIds = [
+    ...new Set(wrongRows.map((r) => r.attempt_session_id).filter((id): id is string => id !== null)),
+  ];
+  if (problemIds.length === 0 || sessionIds.length === 0) return [];
+
+  let sessionQuery = supabase.from("attempt_sessions").select("id, recorded_at").in("id", sessionIds);
+  if (sinceIso) sessionQuery = sessionQuery.gte("recorded_at", sinceIso);
+
+  const [
+    { data: problems, error: problemsError },
+    { data: sessions, error: sessionsError },
+  ] = await Promise.all([
+    supabase.from("workbook_problems").select("id, workbook_id, part, problem_number").in("id", problemIds),
+    sessionQuery,
+  ]);
+  if (problemsError) throw new Error(problemsError.message);
+  if (sessionsError) throw new Error(sessionsError.message);
+
+  const problemById = new Map((problems ?? []).map((p) => [p.id, p]));
+  const sessionById = new Map((sessions ?? []).map((s) => [s.id, s]));
+
+  const workbookIds = [...new Set((problems ?? []).map((p) => p.workbook_id))];
+  const { data: workbooks, error: workbooksError } = await supabase
+    .from("workbooks")
+    .select("id, title, subject_id")
+    .in("id", workbookIds);
+  if (workbooksError) throw new Error(workbooksError.message);
+
+  const allowedWorkbookIds = subjectId
+    ? new Set((workbooks ?? []).filter((w) => w.subject_id === subjectId).map((w) => w.id))
+    : null;
+  const workbookTitleById = new Map((workbooks ?? []).map((w) => [w.id, w.title]));
+
+  const details: WrongProblemDetail[] = [];
+  for (const row of wrongRows) {
+    if (!row.workbook_problem_id || !row.attempt_session_id) continue;
+    const problem = problemById.get(row.workbook_problem_id);
+    const session = sessionById.get(row.attempt_session_id);
+    if (!problem || !session) continue;
+    if (allowedWorkbookIds && !allowedWorkbookIds.has(problem.workbook_id)) continue;
+
+    details.push({
+      workbookId: problem.workbook_id,
+      workbookTitle: workbookTitleById.get(problem.workbook_id) ?? "(삭제된 문제집)",
+      part: problem.part,
+      problemNumber: problem.problem_number,
+      recordedAt: session.recorded_at,
+    });
+  }
+
+  return details.sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime());
+}
+
 export interface AttemptSessionHistoryItem {
   id: string;
   workbookId: string;
