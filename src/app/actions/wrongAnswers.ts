@@ -108,6 +108,77 @@ export async function getWrongRateBreakdown(
   return { unitTypeRates, typeDifficultyRates };
 }
 
+export interface AttemptSessionHistoryItem {
+  id: string;
+  workbookId: string;
+  part: string;
+  rangeStart: number;
+  rangeEnd: number;
+  recordedAt: string;
+  wrongCount: number;
+}
+
+export async function getAttemptSessionHistory(
+  studentId: string
+): Promise<AttemptSessionHistoryItem[]> {
+  if (!studentId) return [];
+
+  const { data: sessions, error: sessionsError } = await supabase
+    .from("attempt_sessions")
+    .select("*")
+    .eq("student_id", studentId)
+    .order("recorded_at", { ascending: false });
+
+  if (sessionsError) throw new Error(sessionsError.message);
+  if (!sessions || sessions.length === 0) return [];
+
+  const sessionIds = sessions.map((s) => s.id);
+  const { data: wrongRows, error: wrongError } = await supabase
+    .from("wrong_answers")
+    .select("attempt_session_id")
+    .in("attempt_session_id", sessionIds);
+
+  if (wrongError) throw new Error(wrongError.message);
+
+  const wrongCounts = new Map<string, number>();
+  for (const row of wrongRows ?? []) {
+    if (!row.attempt_session_id) continue;
+    wrongCounts.set(row.attempt_session_id, (wrongCounts.get(row.attempt_session_id) ?? 0) + 1);
+  }
+
+  return sessions.map((s) => ({
+    id: s.id,
+    workbookId: s.workbook_id,
+    part: s.part,
+    rangeStart: s.range_start,
+    rangeEnd: s.range_end,
+    recordedAt: s.recorded_at,
+    wrongCount: wrongCounts.get(s.id) ?? 0,
+  }));
+}
+
+// 등록을 잘못 했을 때(범위를 잘못 잡았거나 틀린 문제를 잘못 체크한 경우) 되돌릴
+// 수 있도록 등록 이력 자체를 지운다. wrong_answers.attempt_session_id는 on
+// delete set null이라 세션만 지우면 이 세션 때문에 생긴 오답 행이 세션 없이
+// 고아로 남는다 — 사진 없는 문제집 기반 오답은 세션이 없으면 아무 의미가
+// 없으므로 세션을 지울 때 관련 오답 행도 함께 지운다.
+export async function deleteAttemptSession(sessionId: string) {
+  const { error: wrongError } = await supabase
+    .from("wrong_answers")
+    .delete()
+    .eq("attempt_session_id", sessionId);
+  if (wrongError) throw new Error(wrongError.message);
+
+  const { error: sessionError } = await supabase
+    .from("attempt_sessions")
+    .delete()
+    .eq("id", sessionId);
+  if (sessionError) throw new Error(sessionError.message);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/register");
+}
+
 export interface SaveWorkbookWrongAnswersInput {
   studentId: string;
   workbookId: string;

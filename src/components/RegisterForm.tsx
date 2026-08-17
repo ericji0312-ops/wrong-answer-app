@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getWorkbookProblems } from "@/app/actions/workbooks";
-import { saveWorkbookWrongAnswers } from "@/app/actions/wrongAnswers";
+import {
+  deleteAttemptSession,
+  getAttemptSessionHistory,
+  saveWorkbookWrongAnswers,
+  type AttemptSessionHistoryItem,
+} from "@/app/actions/wrongAnswers";
 import type { Student, Subject, Workbook, WorkbookProblem } from "@/types/domain";
 
 export default function RegisterForm({
@@ -28,6 +33,44 @@ export default function RegisterForm({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [history, setHistory] = useState<AttemptSessionHistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const workbookTitle = useCallback(
+    (workbookId: string) => workbooks.find((w) => w.id === workbookId)?.title ?? "(삭제된 문제집)",
+    [workbooks]
+  );
+
+  const refreshHistory = useCallback(() => {
+    if (!studentId) {
+      setHistory([]);
+      return;
+    }
+    setLoadingHistory(true);
+    getAttemptSessionHistory(studentId)
+      .then(setHistory)
+      .finally(() => setLoadingHistory(false));
+  }, [studentId]);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
+
+  async function handleDelete(sessionId: string) {
+    if (!window.confirm("이 등록 이력을 삭제할까요? 관련된 오답 기록도 함께 삭제되며 되돌릴 수 없습니다.")) {
+      return;
+    }
+    setDeletingId(sessionId);
+    try {
+      await deleteAttemptSession(sessionId);
+      refreshHistory();
+    } catch {
+      window.alert("삭제 중 오류가 발생했습니다.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const availableSubjects = useMemo(
     () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
@@ -123,6 +166,7 @@ export default function RegisterForm({
       setRangeEnd("");
       setWrongNumbers(new Set());
       setProblems([]);
+      refreshHistory();
     } catch {
       setSaveError("저장 중 오류가 발생했습니다.");
     } finally {
@@ -284,6 +328,40 @@ export default function RegisterForm({
       </button>
       {saveError && <p className="text-red-600">{saveError}</p>}
       {saveSuccess && <p className="text-green-600">저장되었습니다.</p>}
+
+      <div className="space-y-2 border-t pt-4">
+        <h2 className="font-medium">등록 이력</h2>
+        {loadingHistory ? (
+          <p className="text-gray-500">불러오는 중...</p>
+        ) : history.length === 0 ? (
+          <p className="text-gray-500">등록된 이력이 없습니다.</p>
+        ) : (
+          <ul className="divide-y rounded border">
+            {history.map((h) => (
+              <li key={h.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                <div>
+                  <p className="font-medium">
+                    {workbookTitle(h.workbookId)}
+                    {h.part && ` · ${h.part}`}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {h.rangeStart}~{h.rangeEnd}번 · 오답 {h.wrongCount}개 ·{" "}
+                    {new Date(h.recordedAt).toLocaleDateString("ko-KR")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(h.id)}
+                  disabled={deletingId === h.id}
+                  className="shrink-0 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+                >
+                  {deletingId === h.id ? "삭제 중..." : "삭제"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
