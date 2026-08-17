@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getWrongRateBreakdown, type WrongRateBreakdown } from "@/app/actions/wrongAnswers";
 import TypeDifficultyHeatmap from "@/components/TypeDifficultyHeatmap";
-import type { Student } from "@/types/domain";
+import type { Student, Subject } from "@/types/domain";
 
 type Period = "all" | "1m";
 
@@ -13,8 +13,17 @@ function severity(rate: number) {
   return { label: "양호", badge: "bg-green-100 text-green-700", bar: "bg-green-500" };
 }
 
-export default function Dashboard({ students }: { students: Student[] }) {
+export default function Dashboard({
+  students,
+  subjects,
+  studentSubjectMap,
+}: {
+  students: Student[];
+  subjects: Subject[];
+  studentSubjectMap: Record<string, string[]>;
+}) {
   const [studentId, setStudentId] = useState(students[0]?.id ?? "");
+  const [subjectId, setSubjectId] = useState("");
   const [period, setPeriod] = useState<Period>("all");
   const [query, setQuery] = useState("");
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
@@ -24,8 +33,18 @@ export default function Dashboard({ students }: { students: Student[] }) {
   });
   const [loadingRates, setLoadingRates] = useState(false);
 
+  const availableSubjects = useMemo(
+    () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
+    [subjects, studentSubjectMap, studentId]
+  );
+
   useEffect(() => {
-    if (!studentId) {
+    setSubjectId(availableSubjects[0]?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId]);
+
+  useEffect(() => {
+    if (!studentId || !subjectId) {
       setWrongRates({ unitTypeRates: [], typeDifficultyRates: [] });
       return;
     }
@@ -35,7 +54,7 @@ export default function Dashboard({ students }: { students: Student[] }) {
       period === "1m"
         ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
         : undefined;
-    getWrongRateBreakdown(studentId, sinceIso)
+    getWrongRateBreakdown(studentId, subjectId, sinceIso)
       .then((data) => {
         if (!cancelled) setWrongRates(data);
       })
@@ -45,7 +64,7 @@ export default function Dashboard({ students }: { students: Student[] }) {
     return () => {
       cancelled = true;
     };
-  }, [studentId, period]);
+  }, [studentId, subjectId, period]);
 
   const unitGroups = useMemo(() => {
     const groups = new Map<string, { unit: string; items: { label: string; rate: number }[] }>();
@@ -133,6 +152,25 @@ export default function Dashboard({ students }: { students: Student[] }) {
           >
             {students.length === 0 && <option value="">등록된 학생이 없습니다</option>}
             {students.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="block font-medium">과목</label>
+          <select
+            value={subjectId}
+            onChange={(e) => setSubjectId(e.target.value)}
+            className="border rounded-lg px-3 py-1.5"
+            disabled={availableSubjects.length === 0}
+          >
+            {availableSubjects.length === 0 && (
+              <option value="">수강 중인 과목이 없습니다</option>
+            )}
+            {availableSubjects.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>

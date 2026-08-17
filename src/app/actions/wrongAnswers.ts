@@ -24,6 +24,7 @@ export interface WrongRateBreakdown {
 
 export async function getWrongRateBreakdown(
   studentId: string,
+  subjectId?: string,
   sinceIso?: string
 ): Promise<WrongRateBreakdown> {
   let sessionQuery = supabase
@@ -31,6 +32,17 @@ export async function getWrongRateBreakdown(
     .select("*")
     .eq("student_id", studentId);
   if (sinceIso) sessionQuery = sessionQuery.gte("recorded_at", sinceIso);
+
+  if (subjectId) {
+    const { data: workbooksForSubject, error: workbooksError } = await supabase
+      .from("workbooks")
+      .select("id")
+      .eq("subject_id", subjectId);
+    if (workbooksError) throw new Error(workbooksError.message);
+    const workbookIds = (workbooksForSubject ?? []).map((w) => w.id);
+    if (workbookIds.length === 0) return { unitTypeRates: [], typeDifficultyRates: [] };
+    sessionQuery = sessionQuery.in("workbook_id", workbookIds);
+  }
 
   const { data: sessions, error: sessionsError } = await sessionQuery;
   if (sessionsError) throw new Error(sessionsError.message);
