@@ -36,7 +36,6 @@ export interface ParsedWorkbookProblem {
   unit: string;
   problem_type: string;
   difficulty: "하" | "중" | "상" | "최상";
-  page_number: number;
 }
 
 function buildWorkbookPrompt(options: CategoryOption[]): string {
@@ -54,9 +53,7 @@ ${listText}`
 실제로 그 문제가 다루는 구체적인 스킬/개념으로 작성해줘.`;
 
   return `이 문제집 PDF 안에 있는 모든 문제를 처음부터 끝까지 순서대로 찾아서,
-문제마다 (1) 파트 (2) 문제번호 (3) 단원 (4) 세부 유형 (5) 난이도 (6) 그 문제가
-시작되는 PDF 페이지 번호(1부터 시작, PDF 파일 자체의 물리적 페이지 번호)를
-배열로 반환해줘.
+문제마다 (1) 파트 (2) 문제번호 (3) 단원 (4) 세부 유형 (5) 난이도를 배열로 반환해줘.
 - 핵심 규칙: 문제 번호가 도중에 다시 1번으로 리셋되는 지점마다 "새로운 파트"가
   시작된 것으로 간주해. 같은 문제집 안에서 서로 다른 두 문제가 part 값과
   problem_number 값을 동시에 똑같이 가지면 절대 안 돼 — 이게 가장 중요한 제약이야.
@@ -96,9 +93,8 @@ export async function parseWorkbookPdf(
           problem_number: { type: Type.INTEGER },
           category: { type: Type.STRING, enum: options.map((o) => o.key) },
           difficulty: { type: Type.STRING, enum: ["하", "중", "상", "최상"] },
-          page_number: { type: Type.INTEGER },
         },
-        required: ["part", "problem_number", "category", "difficulty", "page_number"],
+        required: ["part", "problem_number", "category", "difficulty"],
       }
     : {
         type: Type.OBJECT,
@@ -108,9 +104,8 @@ export async function parseWorkbookPdf(
           unit: { type: Type.STRING },
           problem_type: { type: Type.STRING },
           difficulty: { type: Type.STRING, enum: ["하", "중", "상", "최상"] },
-          page_number: { type: Type.INTEGER },
         },
-        required: ["part", "problem_number", "unit", "problem_type", "difficulty", "page_number"],
+        required: ["part", "problem_number", "unit", "problem_type", "difficulty"],
       };
 
   const response = await ai.models.generateContent({
@@ -145,8 +140,6 @@ export async function parseWorkbookPdf(
       if (!Number.isFinite(problemNumber)) return null;
       const part = typeof item.part === "string" ? item.part.trim() : "";
       const difficulty = item.difficulty as ParsedWorkbookProblem["difficulty"];
-      const pageNumber = Number(item.page_number);
-      const page_number = Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : 1;
 
       if (useConstrainedList) {
         const matched = optionsByKey.get(item.category as string);
@@ -158,7 +151,6 @@ export async function parseWorkbookPdf(
           unit: matched.unit,
           problem_type: matched.problem_type,
           difficulty,
-          page_number,
         };
       }
       return {
@@ -168,7 +160,6 @@ export async function parseWorkbookPdf(
         unit: item.unit as string,
         problem_type: item.problem_type as string,
         difficulty,
-        page_number,
       };
     })
     // PDF에 등장한 순서를 그대로 유지한다 — 파트가 있는 문제집은 번호가

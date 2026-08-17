@@ -264,33 +264,3 @@ alter table workbook_problems add constraint workbook_problems_workbook_id_part_
   unique (workbook_id, part, problem_number);
 
 alter table attempt_sessions add column if not exists part text not null default '';
-
--- ============================================================
--- 마이그레이션: 문제 이미지(페이지) 영구 보관
--- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
---
--- 취약유형 대시보드에서 틀린 문제를 클릭했을 때 실제 문제 이미지를 함께
--- 보여주기 위한 것. workbook-pdfs 버킷은 파싱 후 바로 삭제되는 임시
--- 저장소라 재사용할 수 없다 — 대신 파싱 시점에 문제가 있는 페이지만
--- JPEG로 한 번 렌더링해서 이 버킷에 영구 저장한다(무료 플랜 용량을
--- 아끼기 위해 원본 PDF 전체가 아니라 페이지 이미지만 남긴다).
--- 경로 규칙: workbook-pages/{workbook_id}/{page_number}.jpg
--- ============================================================
-
-alter table workbook_problems add column if not exists page_number integer;
-
-insert into storage.buckets (id, name, public)
-values ('workbook-pages', 'workbook-pages', true)
-on conflict (id) do nothing;
-
-create policy "workbook-pages public read"
-  on storage.objects for select
-  using (bucket_id = 'workbook-pages');
-
-create policy "workbook-pages anon insert"
-  on storage.objects for insert
-  with check (bucket_id = 'workbook-pages');
-
-create policy "workbook-pages anon delete"
-  on storage.objects for delete
-  using (bucket_id = 'workbook-pages');

@@ -7,12 +7,6 @@ import {
   type WrongProblemDetail,
   type WrongRateBreakdown,
 } from "@/app/actions/wrongAnswers";
-import { supabase, WORKBOOK_PAGE_BUCKET } from "@/lib/supabaseClient";
-
-function workbookPageImageUrl(workbookId: string, pageNumber: number) {
-  return supabase.storage.from(WORKBOOK_PAGE_BUCKET).getPublicUrl(`${workbookId}/${pageNumber}.jpg`)
-    .data.publicUrl;
-}
 import TypeDifficultyHeatmap from "@/components/TypeDifficultyHeatmap";
 import type { Student, Subject } from "@/types/domain";
 
@@ -48,7 +42,6 @@ export default function Dashboard({
   );
   const [wrongProblems, setWrongProblems] = useState<WrongProblemDetail[]>([]);
   const [loadingWrongProblems, setLoadingWrongProblems] = useState(false);
-  const [expandedProblemIndex, setExpandedProblemIndex] = useState<number | null>(null);
 
   const availableSubjects = useMemo(
     () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
@@ -115,10 +108,6 @@ export default function Dashboard({
       cancelled = true;
     };
   }, [selectedCell, studentId, subjectId, period]);
-
-  useEffect(() => {
-    setExpandedProblemIndex(null);
-  }, [selectedCell]);
 
   const unitGroups = useMemo(() => {
     const groups = new Map<string, { unit: string; items: { label: string; rate: number }[] }>();
@@ -387,28 +376,14 @@ export default function Dashboard({
             ) : (
               <ul className="mt-3 divide-y">
                 {wrongProblems.map((p, i) => (
-                  <li key={`${p.workbookId}-${p.part}-${p.problemNumber}-${i}`} className="py-2">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedProblemIndex((prev) => (prev === i ? null : i))}
-                      disabled={!p.pageNumber}
-                      className="flex w-full items-center justify-between gap-2 text-left disabled:cursor-default"
-                    >
-                      <span>
-                        {p.workbookTitle}
-                        {p.part && ` · ${p.part}`} · {p.problemNumber}번
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {new Date(p.recordedAt).toLocaleDateString("ko-KR")}
-                      </span>
-                    </button>
-                    {expandedProblemIndex === i && p.pageNumber && (
-                      <img
-                        src={workbookPageImageUrl(p.workbookId, p.pageNumber)}
-                        alt={`${p.workbookTitle} ${p.problemNumber}번 문제 페이지`}
-                        className="mt-2 max-h-[32rem] w-full rounded border object-contain"
-                      />
-                    )}
+                  <li key={`${p.workbookId}-${p.part}-${p.problemNumber}-${i}`} className="flex items-center justify-between py-2">
+                    <span>
+                      {p.workbookTitle}
+                      {p.part && ` · ${p.part}`} · {p.problemNumber}번
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {new Date(p.recordedAt).toLocaleDateString("ko-KR")}
+                    </span>
                   </li>
                 ))}
               </ul>

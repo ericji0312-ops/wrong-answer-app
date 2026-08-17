@@ -125,7 +125,6 @@ export interface WrongProblemDetail {
   workbookTitle: string;
   part: string;
   problemNumber: number;
-  pageNumber: number | null;
   recordedAt: string;
 }
 
@@ -162,10 +161,7 @@ export async function getWrongProblemsByTypeDifficulty(
     { data: problems, error: problemsError },
     { data: sessions, error: sessionsError },
   ] = await Promise.all([
-    supabase
-      .from("workbook_problems")
-      .select("id, workbook_id, part, problem_number, page_number")
-      .in("id", problemIds),
+    supabase.from("workbook_problems").select("id, workbook_id, part, problem_number").in("id", problemIds),
     sessionQuery,
   ]);
   if (problemsError) throw new Error(problemsError.message);
@@ -199,7 +195,6 @@ export async function getWrongProblemsByTypeDifficulty(
       workbookTitle: workbookTitleById.get(problem.workbook_id) ?? "(삭제된 문제집)",
       part: problem.part,
       problemNumber: problem.problem_number,
-      pageNumber: problem.page_number,
       recordedAt: session.recorded_at,
     });
   }
