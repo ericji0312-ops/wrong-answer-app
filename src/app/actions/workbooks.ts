@@ -50,6 +50,59 @@ export async function getWorkbookProblems(workbookId: string): Promise<WorkbookP
   return data ?? [];
 }
 
+export interface RepeatedWorkbookPart {
+  workbookId: string;
+  workbookTitle: string;
+  part: string;
+  maxRound: number;
+}
+
+// 대시보드의 "회차별 비교" 문제집/파트 선택 목록을 채우기 위해, 이 학생이
+// 2회독 이상 등록한 (문제집, 파트) 조합만 뽑아준다.
+export async function getWorkbooksWithMultipleRounds(
+  studentId: string
+): Promise<RepeatedWorkbookPart[]> {
+  if (!studentId) return [];
+
+  const { data: sessions, error } = await supabase
+    .from("attempt_sessions")
+    .select("workbook_id, part, round")
+    .eq("student_id", studentId);
+  if (error) throw new Error(error.message);
+  if (!sessions || sessions.length === 0) return [];
+
+  const maxRoundByKey = new Map<string, { workbookId: string; part: string; maxRound: number }>();
+  for (const s of sessions) {
+    const key = `${s.workbook_id}||${s.part}`;
+    const entry = maxRoundByKey.get(key);
+    if (!entry || s.round > entry.maxRound) {
+      maxRoundByKey.set(key, { workbookId: s.workbook_id, part: s.part, maxRound: s.round });
+    }
+  }
+
+  const repeated = [...maxRoundByKey.values()].filter((e) => e.maxRound >= 2);
+  if (repeated.length === 0) return [];
+
+  const workbookIds = [...new Set(repeated.map((r) => r.workbookId))];
+  const { data: workbooks, error: workbooksError } = await supabase
+    .from("workbooks")
+    .select("id, title")
+    .in("id", workbookIds);
+  if (workbooksError) throw new Error(workbooksError.message);
+  const titleById = new Map((workbooks ?? []).map((w) => [w.id, w.title]));
+
+  return repeated
+    .map((r) => ({
+      workbookId: r.workbookId,
+      workbookTitle: titleById.get(r.workbookId) ?? "(삭제된 문제집)",
+      part: r.part,
+      maxRound: r.maxRound,
+    }))
+    .sort(
+      (a, b) => a.workbookTitle.localeCompare(b.workbookTitle) || a.part.localeCompare(b.part)
+    );
+}
+
 // PDF는 브라우저에서 workbook-pdfs 버킷으로 직접 업로드된 뒤, 여기서는 그
 // 경로만 받아 서버 쪽에서 내려받는다. Vercel 서버리스 함수는 요청 본문이
 // 약 4.5MB를 넘으면 플랫폼 레벨에서 413으로 막아버려서, 스캔본 같은 큰

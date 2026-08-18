@@ -5,10 +5,16 @@ import { getWorkbookProblems } from "@/app/actions/workbooks";
 import {
   deleteAttemptSession,
   getAttemptSessionHistory,
+  getNextRoundNumber,
+  getPreviouslyWrongProblems,
+  saveRetestWrongAnswers,
   saveWorkbookWrongAnswers,
   type AttemptSessionHistoryItem,
+  type PreviouslyWrongProblem,
 } from "@/app/actions/wrongAnswers";
 import type { Student, Subject, Workbook, WorkbookProblem } from "@/types/domain";
+
+type RegistrationMode = "full" | "retest";
 
 export default function RegisterForm({
   students,
@@ -25,11 +31,16 @@ export default function RegisterForm({
   const [subjectId, setSubjectId] = useState("");
   const [workbookId, setWorkbookId] = useState("");
   const [part, setPart] = useState("");
+  const [registrationMode, setRegistrationMode] = useState<RegistrationMode>("full");
+  const [round, setRound] = useState("1");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [problems, setProblems] = useState<WorkbookProblem[]>([]);
   const [loadingProblems, setLoadingProblems] = useState(false);
   const [wrongNumbers, setWrongNumbers] = useState<Set<number>>(new Set());
+  const [previouslyWrong, setPreviouslyWrong] = useState<PreviouslyWrongProblem[]>([]);
+  const [loadingPreviouslyWrong, setLoadingPreviouslyWrong] = useState(false);
+  const [retestStillWrongIds, setRetestStillWrongIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -97,6 +108,7 @@ export default function RegisterForm({
     setProblems([]);
     setPart("");
     setWrongNumbers(new Set());
+    setRegistrationMode("full");
     setSaveSuccess(false);
     if (!workbookId) return;
     let cancelled = false;
@@ -116,6 +128,40 @@ export default function RegisterForm({
     };
   }, [workbookId]);
 
+  // 학생/문제집/파트가 정해지면 다음 회차 번호를 자동으로 제안한다 (수정 가능).
+  useEffect(() => {
+    if (!studentId || !workbookId) return;
+    let cancelled = false;
+    getNextRoundNumber(studentId, workbookId, part).then((next) => {
+      if (!cancelled) setRound(String(next));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, workbookId, part]);
+
+  // "오답만 재시험" 모드에서는 이전에 이 학생이 틀렸던 문제 목록을 불러와
+  // 체크리스트로 보여준다.
+  useEffect(() => {
+    setRetestStillWrongIds(new Set());
+    if (registrationMode !== "retest" || !studentId || !workbookId) {
+      setPreviouslyWrong([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPreviouslyWrong(true);
+    getPreviouslyWrongProblems(studentId, workbookId, part)
+      .then((data) => {
+        if (!cancelled) setPreviouslyWrong(data);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPreviouslyWrong(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [registrationMode, studentId, workbookId, part]);
+
   const parts = useMemo(() => {
     const seen = new Set<string>();
     const list: string[] = [];
@@ -133,6 +179,9 @@ export default function RegisterForm({
   const rangeValid =
     rangeStart !== "" && rangeEnd !== "" && Number.isInteger(start) && Number.isInteger(end) && start <= end;
 
+  const roundNumber = Number(round);
+  const roundValid = round !== "" && Number.isInteger(roundNumber) && roundNumber >= 1;
+
   const problemsInRange = useMemo(() => {
     if (!rangeValid) return [];
     return problems.filter(
@@ -149,24 +198,55 @@ export default function RegisterForm({
     });
   }
 
+  function toggleRetestStillWrong(problemId: string) {
+    setRetestStillWrongIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(problemId)) next.delete(problemId);
+      else next.add(problemId);
+      return next;
+    });
+  }
+
+  const canSaveFull = studentId !== "" && workbookId !== "" && rangeValid && roundValid;
+  const canSaveRetest =
+    studentId !== "" && workbookId !== "" && roundValid && previouslyWrong.length > 0;
+
   async function handleSave() {
-    if (!studentId || !workbookId || !rangeValid) return;
     setSaving(true);
     setSaveError(null);
     try {
-      await saveWorkbookWrongAnswers({
-        studentId,
-        workbookId,
-        part,
-        rangeStart: start,
-        rangeEnd: end,
-        wrongProblemNumbers: [...wrongNumbers],
-      });
+      if (registrationMode === "full") {
+        if (!canSaveFull) return;
+        await saveWorkbookWrongAnswers({
+          studentId,
+          workbookId,
+          part,
+          rangeStart: start,
+          rangeEnd: end,
+          wrongProblemNumbers: [...wrongNumbers],
+          round: roundNumber,
+        });
+        setRangeStart("");
+        setRangeEnd("");
+        setWrongNumbers(new Set());
+      } else {
+        if (!canSaveRetest) return;
+        await saveRetestWrongAnswers({
+          studentId,
+          workbookId,
+          part,
+          round: roundNumber,
+          attemptedProblemIds: previouslyWrong.map((p) => p.problemId),
+          stillWrongProblemIds: [...retestStillWrongIds],
+        });
+        setRetestStillWrongIds(new Set());
+        const refreshed = await getPreviouslyWrongProblems(studentId, workbookId, part);
+        setPreviouslyWrong(refreshed);
+      }
       setSaveSuccess(true);
-      setRangeStart("");
-      setRangeEnd("");
-      setWrongNumbers(new Set());
       refreshHistory();
+      const next = await getNextRoundNumber(studentId, workbookId, part);
+      setRound(String(next));
     } catch {
       setSaveError("저장 중 오류가 발생했습니다.");
     } finally {
@@ -263,55 +343,142 @@ export default function RegisterForm({
         </div>
       )}
 
-      <div className="space-y-1">
-        <label className="block font-medium">이번에 푼 범위</label>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            value={rangeStart}
-            onChange={(e) => setRangeStart(e.target.value)}
-            placeholder="시작 번호"
-            className="border rounded px-2 py-1 w-full"
-          />
-          <span>~</span>
-          <input
-            type="number"
-            value={rangeEnd}
-            onChange={(e) => setRangeEnd(e.target.value)}
-            placeholder="끝 번호"
-            className="border rounded px-2 py-1 w-full"
-          />
+      {workbookId && (
+        <div className="space-y-1">
+          <label className="block font-medium">등록 방식</label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setRegistrationMode("full")}
+              className={
+                "flex-1 rounded border px-3 py-1.5 text-xs font-medium " +
+                (registrationMode === "full"
+                  ? "border-blue-600 bg-blue-50 text-blue-700"
+                  : "text-gray-500 hover:bg-gray-50")
+              }
+            >
+              전체 범위 재등록
+            </button>
+            <button
+              type="button"
+              onClick={() => setRegistrationMode("retest")}
+              className={
+                "flex-1 rounded border px-3 py-1.5 text-xs font-medium " +
+                (registrationMode === "retest"
+                  ? "border-blue-600 bg-blue-50 text-blue-700"
+                  : "text-gray-500 hover:bg-gray-50")
+              }
+            >
+              오답만 재시험
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {loadingProblems && <p className="text-gray-500">문제 목록을 불러오는 중...</p>}
+      {workbookId && (
+        <div className="space-y-1">
+          <label className="block font-medium">회차</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              value={round}
+              onChange={(e) => setRound(e.target.value)}
+              className="border rounded px-2 py-1 w-24"
+            />
+            <span className="text-xs text-gray-500">회독째 등록 (자동 제안, 수정 가능)</span>
+          </div>
+        </div>
+      )}
 
-      {!loadingProblems && rangeValid && workbookId && (
+      {registrationMode === "full" && (
+        <>
+          <div className="space-y-1">
+            <label className="block font-medium">이번에 푼 범위</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={rangeStart}
+                onChange={(e) => setRangeStart(e.target.value)}
+                placeholder="시작 번호"
+                className="border rounded px-2 py-1 w-full"
+              />
+              <span>~</span>
+              <input
+                type="number"
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(e.target.value)}
+                placeholder="끝 번호"
+                className="border rounded px-2 py-1 w-full"
+              />
+            </div>
+          </div>
+
+          {loadingProblems && <p className="text-gray-500">문제 목록을 불러오는 중...</p>}
+
+          {!loadingProblems && rangeValid && workbookId && (
+            <div className="space-y-2 border-t pt-4">
+              <p className="font-medium">
+                틀린 문제를 선택해주세요 ({problemsInRange.length}문항 중{" "}
+                {wrongNumbers.size}개 선택)
+              </p>
+              {problemsInRange.length === 0 ? (
+                <p className="text-gray-500">
+                  이 범위에 등록된 문제가 없습니다. 문제집 관리 화면에서 문제 데이터를
+                  확인해주세요.
+                </p>
+              ) : (
+                <div className="grid grid-cols-6 sm:grid-cols-8 gap-1">
+                  {problemsInRange.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => toggleWrong(p.problem_number)}
+                      className={
+                        "rounded border py-1 text-xs " +
+                        (wrongNumbers.has(p.problem_number)
+                          ? "bg-red-600 text-white border-red-600"
+                          : "hover:bg-gray-50")
+                      }
+                    >
+                      {p.problem_number}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {registrationMode === "retest" && (
         <div className="space-y-2 border-t pt-4">
           <p className="font-medium">
-            틀린 문제를 선택해주세요 ({problemsInRange.length}문항 중{" "}
-            {wrongNumbers.size}개 선택)
+            이전에 틀렸던 문제 중 이번에도 틀린 문제를 선택해주세요 (체크 안 하면 맞은 것으로
+            처리)
           </p>
-          {problemsInRange.length === 0 ? (
+          {loadingPreviouslyWrong ? (
+            <p className="text-gray-500">불러오는 중...</p>
+          ) : previouslyWrong.length === 0 ? (
             <p className="text-gray-500">
-              이 범위에 등록된 문제가 없습니다. 문제집 관리 화면에서 문제 데이터를
-              확인해주세요.
+              이 문제집(파트)에서 이전에 틀린 기록이 없습니다. 먼저 전체 범위로 등록해주세요.
             </p>
           ) : (
             <div className="grid grid-cols-6 sm:grid-cols-8 gap-1">
-              {problemsInRange.map((p) => (
+              {previouslyWrong.map((p) => (
                 <button
-                  key={p.id}
+                  key={p.problemId}
                   type="button"
-                  onClick={() => toggleWrong(p.problem_number)}
+                  onClick={() => toggleRetestStillWrong(p.problemId)}
+                  title={`${p.unit} · ${p.problemType} · ${p.difficulty} · ${p.timesWrong}회 오답`}
                   className={
                     "rounded border py-1 text-xs " +
-                    (wrongNumbers.has(p.problem_number)
+                    (retestStillWrongIds.has(p.problemId)
                       ? "bg-red-600 text-white border-red-600"
                       : "hover:bg-gray-50")
                   }
                 >
-                  {p.problem_number}
+                  {p.problemNumber}
                 </button>
               ))}
             </div>
@@ -321,7 +488,7 @@ export default function RegisterForm({
 
       <button
         onClick={handleSave}
-        disabled={saving || !studentId || !workbookId || !rangeValid}
+        disabled={saving || (registrationMode === "full" ? !canSaveFull : !canSaveRetest)}
         className="bg-blue-600 text-white rounded px-4 py-2 w-full transition-colors duration-150 hover:bg-blue-700 disabled:opacity-40"
       >
         {saving ? "저장 중..." : "오답 등록 저장"}
@@ -348,10 +515,20 @@ export default function RegisterForm({
                     <p className="font-medium">
                       {workbookTitle(h.workbookId)}
                       {h.part && ` · ${h.part}`}
+                      <span className="ml-1.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                        {h.round}회독
+                      </span>
+                      {h.mode === "retest" && (
+                        <span className="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                          재시험
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {h.rangeStart}~{h.rangeEnd}번 · 오답 {h.wrongCount}개 ·{" "}
-                      {new Date(h.recordedAt).toLocaleDateString("ko-KR")}
+                      {h.mode === "full"
+                        ? `${h.rangeStart}~${h.rangeEnd}번 · `
+                        : ""}
+                      오답 {h.wrongCount}개 · {new Date(h.recordedAt).toLocaleDateString("ko-KR")}
                     </p>
                   </button>
                   <button

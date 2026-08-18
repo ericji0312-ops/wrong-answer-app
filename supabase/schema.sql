@@ -239,6 +239,49 @@ create policy "workbook-pdfs anon delete"
   using (bucket_id = 'workbook-pdfs');
 
 -- ============================================================
+-- 마이그레이션: N회독(반복 풀이) 지원
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+--
+-- attempt_sessions에 회차(round)와 등록 방식(mode)을 추가한다. mode='full'은
+-- 기존처럼 range_start~range_end 범위로 커버리지를 표현하고, mode='retest'는
+-- (연속되지 않는) "이전에 틀린 문제만 다시 풀기" 등록이라 range 대신
+-- attempt_session_problems에 실제로 푼 문제 목록을 명시적으로 저장한다.
+--
+-- 기존 행은 round=1, mode='full'로 채워지고 range 컬럼 값도 그대로 남아있어서,
+-- mode='full' 세션을 다루는 기존 커버리지 계산 로직은 전과 동일하게 동작한다.
+-- ============================================================
+
+alter table attempt_sessions add column if not exists round integer not null default 1;
+alter table attempt_sessions add column if not exists mode text not null default 'full';
+
+alter table attempt_sessions drop constraint if exists attempt_sessions_mode_chk;
+alter table attempt_sessions add constraint attempt_sessions_mode_chk
+  check (mode in ('full', 'retest'));
+
+alter table attempt_sessions alter column range_start drop not null;
+alter table attempt_sessions alter column range_end drop not null;
+
+alter table attempt_sessions drop constraint if exists attempt_sessions_mode_range_chk;
+alter table attempt_sessions add constraint attempt_sessions_mode_range_chk check (
+  (mode = 'full'   and range_start is not null and range_end is not null) or
+  (mode = 'retest' and range_start is null and range_end is null)
+);
+
+create table if not exists attempt_session_problems (
+  id uuid primary key default gen_random_uuid(),
+  attempt_session_id uuid not null references attempt_sessions(id) on delete cascade,
+  workbook_problem_id uuid not null references workbook_problems(id) on delete cascade,
+  unique (attempt_session_id, workbook_problem_id)
+);
+
+alter table attempt_session_problems disable row level security;
+create index if not exists idx_attempt_session_problems_session on attempt_session_problems (attempt_session_id);
+create index if not exists idx_attempt_session_problems_problem on attempt_session_problems (workbook_problem_id);
+
+create index if not exists idx_attempt_sessions_student_workbook_part_round
+  on attempt_sessions (student_id, workbook_id, part, round);
+
+-- ============================================================
 -- 마이그레이션: 문제집 파트(섹션) 지원
 -- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
 --

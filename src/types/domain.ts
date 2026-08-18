@@ -58,12 +58,16 @@ export interface WorkbookProblem {
   created_at: string;
 }
 
+export type AttemptSessionMode = "full" | "retest";
+
 export interface AttemptSession {
   id: string;
   student_id: string;
   workbook_id: string;
   part: string;
-  range_start: number;
-  range_end: number;
+  range_start: number | null;
+  range_end: number | null;
+  round: number;
+  mode: AttemptSessionMode;
   recorded_at: string;
 }

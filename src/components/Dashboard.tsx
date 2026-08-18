@@ -2,11 +2,18 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
+  getRepeatWrongProblems,
+  getRoundComparison,
   getWrongProblemsByTypeDifficulty,
   getWrongRateBreakdown,
+  type RepeatWrongProblem,
+  type RoundComparison,
   type WrongProblemDetail,
   type WrongRateBreakdown,
 } from "@/app/actions/wrongAnswers";
+import { getWorkbooksWithMultipleRounds, type RepeatedWorkbookPart } from "@/app/actions/workbooks";
+import RepeatWrongList from "@/components/RepeatWrongList";
+import RoundComparisonTable from "@/components/RoundComparisonTable";
 import TypeDifficultyHeatmap from "@/components/TypeDifficultyHeatmap";
 import type { Student, Subject } from "@/types/domain";
 
@@ -42,6 +49,11 @@ export default function Dashboard({
   );
   const [wrongProblems, setWrongProblems] = useState<WrongProblemDetail[]>([]);
   const [loadingWrongProblems, setLoadingWrongProblems] = useState(false);
+  const [repeatWrongProblems, setRepeatWrongProblems] = useState<RepeatWrongProblem[]>([]);
+  const [comparisonWorkbooks, setComparisonWorkbooks] = useState<RepeatedWorkbookPart[]>([]);
+  const [comparisonKey, setComparisonKey] = useState("");
+  const [roundComparison, setRoundComparison] = useState<RoundComparison | null>(null);
+  const [loadingComparison, setLoadingComparison] = useState(false);
 
   const availableSubjects = useMemo(
     () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
@@ -79,6 +91,59 @@ export default function Dashboard({
   useEffect(() => {
     setSelectedCell(null);
   }, [studentId, subjectId, period]);
+
+  // 반복오답(여러 회차에 걸쳐 틀림) 판정은 기간 필터와 무관하게 항상 전체
+  // 이력을 본다 — "최근 1개월"로 좁혀도 그 전에 이미 반복 틀린 문제가
+  // 반복오답 목록에서 사라지면 안 되기 때문.
+  useEffect(() => {
+    if (!studentId || !subjectId) {
+      setRepeatWrongProblems([]);
+      return;
+    }
+    let cancelled = false;
+    getRepeatWrongProblems(studentId, subjectId).then((data) => {
+      if (!cancelled) setRepeatWrongProblems(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, subjectId]);
+
+  useEffect(() => {
+    setComparisonKey("");
+    setRoundComparison(null);
+    if (!studentId) {
+      setComparisonWorkbooks([]);
+      return;
+    }
+    let cancelled = false;
+    getWorkbooksWithMultipleRounds(studentId).then((data) => {
+      if (!cancelled) setComparisonWorkbooks(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId]);
+
+  useEffect(() => {
+    if (!comparisonKey || !studentId) {
+      setRoundComparison(null);
+      return;
+    }
+    const [workbookId, part] = comparisonKey.split("||");
+    let cancelled = false;
+    setLoadingComparison(true);
+    getRoundComparison(studentId, workbookId, part)
+      .then((data) => {
+        if (!cancelled) setRoundComparison(data);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingComparison(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [comparisonKey, studentId]);
 
   useEffect(() => {
     if (!selectedCell || !studentId) {
@@ -271,6 +336,8 @@ export default function Dashboard({
         </div>
       </div>
 
+      <RepeatWrongList problems={repeatWrongProblems} />
+
       <section className="space-y-3">
         <h2 className="font-semibold">단원별 · 유형별 오답률</h2>
         <p className="text-xs text-gray-400">
@@ -413,6 +480,35 @@ export default function Dashboard({
           </div>
         )}
       </section>
+
+      {comparisonWorkbooks.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="font-semibold">회차별 비교</h2>
+          <p className="text-xs text-gray-400">
+            2회독 이상 등록된 문제집·파트를 골라 회차별 정오답을 나란히 비교합니다
+          </p>
+          <select
+            value={comparisonKey}
+            onChange={(e) => setComparisonKey(e.target.value)}
+            className="border rounded-lg px-3 py-1.5"
+          >
+            <option value="">문제집을 선택하세요</option>
+            {comparisonWorkbooks.map((w) => (
+              <option key={`${w.workbookId}||${w.part}`} value={`${w.workbookId}||${w.part}`}>
+                {w.workbookTitle}
+                {w.part && ` · ${w.part}`} (최대 {w.maxRound}회독)
+              </option>
+            ))}
+          </select>
+
+          {comparisonKey &&
+            (loadingComparison ? (
+              <p className="text-gray-500">불러오는 중...</p>
+            ) : roundComparison ? (
+              <RoundComparisonTable comparison={roundComparison} />
+            ) : null)}
+        </section>
+      )}
     </div>
   );
 }

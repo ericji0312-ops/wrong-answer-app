@@ -100,6 +100,7 @@ export default function TypeDifficultyHeatmap({
               const rate = Math.round((cell.wrong / cell.total) * 100);
               const textLight = rate >= 55;
               const isSelected = selected?.problemType === type && selected?.difficulty === d;
+              const hasRepeatWrong = cell.repeatWrong > 0;
               return (
                 <button
                   key={d}
@@ -107,7 +108,7 @@ export default function TypeDifficultyHeatmap({
                   onClick={() => onCellClick?.(type, d)}
                   disabled={!onCellClick || cell.wrong === 0}
                   className={
-                    "flex h-12 items-center justify-center rounded-sm text-sm font-bold transition-shadow " +
+                    "relative flex h-12 items-center justify-center rounded-sm text-sm font-bold transition-shadow " +
                     (onCellClick && cell.wrong > 0 ? "cursor-pointer hover:ring-2 hover:ring-blue-400" : "") +
                     (isSelected ? " ring-2 ring-blue-600" : "")
                   }
@@ -115,8 +116,16 @@ export default function TypeDifficultyHeatmap({
                     backgroundColor: rampColor(rate),
                     color: textLight ? "#ffffff" : "#7f1d1d",
                   }}
-                  title={`${type} · ${d} — ${cell.wrong}/${cell.total}`}
+                  title={
+                    `${type} · ${d} — ${cell.wrong}/${cell.total}` +
+                    (hasRepeatWrong ? ` (반복오답 ${cell.repeatWrong}개)` : "")
+                  }
                 >
+                  {hasRepeatWrong && (
+                    <span className="absolute right-0.5 top-0.5 text-[10px] leading-none" aria-hidden>
+                      🔁
+                    </span>
+                  )}
                   {rate}%
                 </button>
               );
