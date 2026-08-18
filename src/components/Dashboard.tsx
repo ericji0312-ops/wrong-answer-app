@@ -31,6 +31,7 @@ export default function Dashboard({
   const [subjectId, setSubjectId] = useState("");
   const [period, setPeriod] = useState<Period>("all");
   const [query, setQuery] = useState("");
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
   const [wrongRates, setWrongRates] = useState<WrongRateBreakdown>({
     unitTypeRates: [],
     typeDifficultyRates: [],
@@ -166,6 +167,15 @@ export default function Dashboard({
     return { analyzedTypes, unitCount, avgRate, severeCount, topUnit };
   }, [wrongRates.unitTypeRates]);
 
+  function toggleExpand(unit: string) {
+    setExpandedUnits((prev) => {
+      const next = new Set(prev);
+      if (next.has(unit)) next.delete(unit);
+      else next.add(unit);
+      return next;
+    });
+  }
+
   const top4TypesByUnit = useMemo(() => {
     const set = new Set<string>();
     for (const g of unitGroups) {
@@ -263,7 +273,9 @@ export default function Dashboard({
 
       <section className="space-y-3">
         <h2 className="font-semibold">단원별 · 유형별 오답률</h2>
-        <p className="text-xs text-gray-400">단원별 오답률 상위 4개 유형만 표시합니다</p>
+        <p className="text-xs text-gray-400">
+          단원별 오답률 상위 4개 유형을 기본으로 표시하며, 더보기로 나머지를 펼쳐볼 수 있습니다
+        </p>
         <input
           type="text"
           value={query}
@@ -279,7 +291,9 @@ export default function Dashboard({
         ) : (
           <div className="space-y-4">
             {filteredGroups.map((g) => {
-              const shown = query.trim() !== "" ? g.items : g.items.slice(0, 4);
+              const expanded = query.trim() !== "" || expandedUnits.has(g.unit);
+              const shown = expanded ? g.items : g.items.slice(0, 4);
+              const remaining = g.items.length - shown.length;
               return (
                 <div key={g.unit} className="rounded-xl border bg-white p-4">
                   <div className="flex items-center justify-between">
@@ -319,6 +333,15 @@ export default function Dashboard({
                       );
                     })}
                   </div>
+
+                  {!query.trim() && g.items.length > 4 && (
+                    <button
+                      onClick={() => toggleExpand(g.unit)}
+                      className="mt-3 text-xs text-blue-600 hover:underline"
+                    >
+                      {expandedUnits.has(g.unit) ? "접기" : `더보기 (${remaining}개 더)`}
+                    </button>
+                  )}
                 </div>
               );
             })}
