@@ -31,7 +31,6 @@ export default function Dashboard({
   const [subjectId, setSubjectId] = useState("");
   const [period, setPeriod] = useState<Period>("all");
   const [query, setQuery] = useState("");
-  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
   const [wrongRates, setWrongRates] = useState<WrongRateBreakdown>({
     unitTypeRates: [],
     typeDifficultyRates: [],
@@ -167,14 +166,15 @@ export default function Dashboard({
     return { analyzedTypes, unitCount, avgRate, severeCount, topUnit };
   }, [wrongRates.unitTypeRates]);
 
-  function toggleExpand(unit: string) {
-    setExpandedUnits((prev) => {
-      const next = new Set(prev);
-      if (next.has(unit)) next.delete(unit);
-      else next.add(unit);
-      return next;
-    });
-  }
+  const top4TypesByUnit = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of unitGroups) {
+      for (const item of g.items.slice(0, 4)) {
+        set.add(item.label);
+      }
+    }
+    return set;
+  }, [unitGroups]);
 
   return (
     <div className="max-w-5xl p-8 space-y-8 text-sm">
@@ -263,6 +263,7 @@ export default function Dashboard({
 
       <section className="space-y-3">
         <h2 className="font-semibold">단원별 · 유형별 오답률</h2>
+        <p className="text-xs text-gray-400">단원별 오답률 상위 4개 유형만 표시합니다</p>
         <input
           type="text"
           value={query}
@@ -278,9 +279,7 @@ export default function Dashboard({
         ) : (
           <div className="space-y-4">
             {filteredGroups.map((g) => {
-              const expanded = query.trim() !== "" || expandedUnits.has(g.unit);
-              const shown = expanded ? g.items : g.items.slice(0, 6);
-              const remaining = g.items.length - shown.length;
+              const shown = query.trim() !== "" ? g.items : g.items.slice(0, 4);
               return (
                 <div key={g.unit} className="rounded-xl border bg-white p-4">
                   <div className="flex items-center justify-between">
@@ -320,15 +319,6 @@ export default function Dashboard({
                       );
                     })}
                   </div>
-
-                  {!query.trim() && g.items.length > 6 && (
-                    <button
-                      onClick={() => toggleExpand(g.unit)}
-                      className="mt-3 text-xs text-blue-600 hover:underline"
-                    >
-                      {expandedUnits.has(g.unit) ? "접기" : `더보기 (${remaining}개 더)`}
-                    </button>
-                  )}
                 </div>
               );
             })}
@@ -338,12 +328,21 @@ export default function Dashboard({
 
       <section className="space-y-2">
         <h2 className="font-semibold">유형별 · 난이도별 오답률</h2>
-        <p className="text-xs text-gray-400">셀을 클릭하면 해당 유형·난이도의 틀린 문제를 볼 수 있습니다</p>
+        <p className="text-xs text-gray-400">
+          셀을 클릭하면 해당 유형·난이도의 틀린 문제를 볼 수 있습니다 ·{" "}
+          <span className="inline-flex items-center gap-1 align-middle">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-100 text-[10px] text-blue-600">
+              ★
+            </span>
+            단원별 상위 4개 취약유형
+          </span>
+        </p>
         {loadingRates ? (
           <p className="text-gray-500">불러오는 중...</p>
         ) : (
           <TypeDifficultyHeatmap
             cells={wrongRates.typeDifficultyRates}
+            topTypes={top4TypesByUnit}
             selected={selectedCell}
             onCellClick={(problemType, difficulty) =>
               setSelectedCell((prev) =>

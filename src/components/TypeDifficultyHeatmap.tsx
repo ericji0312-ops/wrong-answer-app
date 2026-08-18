@@ -27,10 +27,12 @@ export default function TypeDifficultyHeatmap({
   cells,
   onCellClick,
   selected,
+  topTypes,
 }: {
   cells: HeatmapCell[];
   onCellClick?: (problemType: string, difficulty: string) => void;
   selected?: { problemType: string; difficulty: string } | null;
+  topTypes?: Set<string>;
 }) {
   const wrongByType = new Map<string, number>();
   for (const c of cells) {
@@ -63,9 +65,26 @@ export default function TypeDifficultyHeatmap({
           </div>
         ))}
 
-        {types.map((type) => (
+        {types.map((type) => {
+          const isTop = topTypes?.has(type) ?? false;
+          return (
           <Fragment key={type}>
-            <div className="flex items-center pr-3 text-sm font-medium">{type}</div>
+            <div
+              className={
+                "flex items-center gap-1.5 pr-3 text-sm font-medium " +
+                (isTop ? "text-blue-700" : "")
+              }
+            >
+              {isTop && (
+                <span
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] text-blue-600"
+                  title="단원별 상위 4개 취약유형"
+                >
+                  ★
+                </span>
+              )}
+              {type}
+            </div>
             {DIFFICULTIES.map((d) => {
               const cell = cellByKey.get(`${type}||${d}`);
               if (!cell || cell.total === 0) {
@@ -103,7 +122,8 @@ export default function TypeDifficultyHeatmap({
               );
             })}
           </Fragment>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
