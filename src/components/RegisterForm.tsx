@@ -166,7 +166,6 @@ export default function RegisterForm({
       setRangeStart("");
       setRangeEnd("");
       setWrongNumbers(new Set());
-      setProblems([]);
       refreshHistory();
     } catch {
       setSaveError("저장 중 오류가 발생했습니다.");
