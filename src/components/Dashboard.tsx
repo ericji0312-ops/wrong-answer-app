@@ -445,7 +445,7 @@ export default function Dashboard({
         )}
 
         {selectedCell && (
-          <div className="rounded-xl border bg-white p-4">
+          <div className="rounded-xl border bg-white p-4 shadow-lg lg:fixed lg:right-6 lg:top-24 lg:z-40 lg:w-80 lg:max-h-[75vh] lg:overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="font-bold">
                 {selectedCell.problemType} · {selectedCell.difficulty} 틀린 문제
