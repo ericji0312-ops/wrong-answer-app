@@ -25,7 +25,7 @@ export interface WrongRateBreakdown {
   typeDifficultyRates: HeatmapCell[];
 }
 
-interface SessionRow {
+export interface SessionRow {
   id: string;
   student_id: string;
   workbook_id: string;
@@ -37,7 +37,7 @@ interface SessionRow {
   recorded_at: string;
 }
 
-async function fetchSessions(
+export async function fetchSessions(
   studentId: string,
   subjectId?: string,
   sinceIso?: string
@@ -722,6 +722,7 @@ export interface SaveWorkbookWrongAnswersInput {
   rangeEnd: number;
   wrongProblemNumbers: number[];
   round: number;
+  reasons?: Record<number, string>;
 }
 
 export async function saveWorkbookWrongAnswers({
@@ -732,6 +733,7 @@ export async function saveWorkbookWrongAnswers({
   rangeEnd,
   wrongProblemNumbers,
   round,
+  reasons,
 }: SaveWorkbookWrongAnswersInput) {
   if (!studentId) throw new Error("학생을 선택해주세요.");
   if (!workbookId) throw new Error("문제집을 선택해주세요.");
@@ -779,6 +781,7 @@ export async function saveWorkbookWrongAnswers({
     problem_type: p.problem_type,
     difficulty: p.difficulty,
     is_verified: true,
+    reason_note: reasons?.[p.problem_number]?.trim() || null,
   }));
 
   if (rows.length > 0) {
@@ -796,6 +799,7 @@ export interface SaveRetestWrongAnswersInput {
   round: number;
   attemptedProblemIds: string[];
   stillWrongProblemIds: string[];
+  reasons?: Record<string, string>;
 }
 
 // "오답만 재시험" 모드: 과거 오답 목록 중 이번에 실제로 다시 풀어본 문제들
@@ -808,6 +812,7 @@ export async function saveRetestWrongAnswers({
   round,
   attemptedProblemIds,
   stillWrongProblemIds,
+  reasons,
 }: SaveRetestWrongAnswersInput) {
   if (!studentId) throw new Error("학생을 선택해주세요.");
   if (!workbookId) throw new Error("문제집을 선택해주세요.");
@@ -851,6 +856,7 @@ export async function saveRetestWrongAnswers({
       problem_type: p.problem_type,
       difficulty: p.difficulty,
       is_verified: true,
+      reason_note: reasons?.[p.id]?.trim() || null,
     }));
     if (rows.length > 0) {
       const { error: insertError } = await supabase.from("wrong_answers").insert(rows);

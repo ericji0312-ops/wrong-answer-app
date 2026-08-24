@@ -307,3 +307,14 @@ alter table workbook_problems add constraint workbook_problems_workbook_id_part_
   unique (workbook_id, part, problem_number);
 
 alter table attempt_sessions add column if not exists part text not null default '';
+
+-- ============================================================
+-- 마이그레이션: 오답 이유(reason_note) 기록
+-- Supabase 대시보드 > SQL Editor 에서 이 블록만 실행하면 됨.
+--
+-- 학생이 오답노트에 적는 "틀린 이유"를 원문 그대로 저장한다. 오답 등록
+-- 화면에서 문제별로 선택 입력하며, 나중에 AI 취약유형 리포트를 생성할 때
+-- 이 텍스트를 근거로 사용한다.
+-- ============================================================
+
+alter table wrong_answers add column if not exists reason_note text;

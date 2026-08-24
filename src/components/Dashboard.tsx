@@ -12,6 +12,7 @@ import {
   type WrongRateBreakdown,
 } from "@/app/actions/wrongAnswers";
 import { getWorkbooksWithMultipleRounds, type RepeatedWorkbookPart } from "@/app/actions/workbooks";
+import { generateStudentWeaknessReport } from "@/app/actions/reports";
 import RepeatWrongList from "@/components/RepeatWrongList";
 import RoundComparisonTable from "@/components/RoundComparisonTable";
 import TypeDifficultyHeatmap from "@/components/TypeDifficultyHeatmap";
@@ -54,6 +55,10 @@ export default function Dashboard({
   const [comparisonKey, setComparisonKey] = useState("");
   const [roundComparison, setRoundComparison] = useState<RoundComparison | null>(null);
   const [loadingComparison, setLoadingComparison] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+  const [reportEmpty, setReportEmpty] = useState(false);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const availableSubjects = useMemo(
     () => subjects.filter((s) => (studentSubjectMap[studentId] ?? []).includes(s.id)),
@@ -91,6 +96,39 @@ export default function Dashboard({
   useEffect(() => {
     setSelectedCell(null);
   }, [studentId, subjectId, period]);
+
+  useEffect(() => {
+    setReport(null);
+    setReportEmpty(false);
+    setReportError(null);
+  }, [studentId, subjectId, period]);
+
+  async function handleGenerateReport() {
+    if (!studentId) return;
+    const studentName = students.find((s) => s.id === studentId)?.name ?? "학생";
+    setLoadingReport(true);
+    setReport(null);
+    setReportEmpty(false);
+    setReportError(null);
+    try {
+      const sinceIso =
+        period === "1m"
+          ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+          : undefined;
+      const result = await generateStudentWeaknessReport(
+        studentId,
+        studentName,
+        subjectId || undefined,
+        sinceIso
+      );
+      if (result.empty) setReportEmpty(true);
+      else setReport(result.report ?? "");
+    } catch {
+      setReportError("리포트 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setLoadingReport(false);
+    }
+  }
 
   // 반복오답(여러 회차에 걸쳐 틀림) 판정은 기간 필터와 무관하게 항상 전체
   // 이력을 본다 — "최근 1개월"로 좁혀도 그 전에 이미 반복 틀린 문제가
@@ -307,6 +345,33 @@ export default function Dashboard({
             <option value="1m">최근 1개월</option>
           </select>
         </div>
+      </div>
+
+      <div className="rounded-xl border bg-white p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold">AI 취약유형 리포트</h2>
+            <p className="text-xs text-gray-500">
+              등록된 오답과 학생이 적은 틀린 이유를 Gemini가 읽고 취약 유형과 보완점을
+              정리해줍니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerateReport}
+            disabled={!studentId || loadingReport}
+            className="shrink-0 bg-blue-600 text-white rounded-lg px-4 py-1.5 hover:bg-blue-700 disabled:opacity-40"
+          >
+            {loadingReport ? "생성 중..." : "리포트 생성"}
+          </button>
+        </div>
+        {reportEmpty && (
+          <p className="text-gray-500">
+            현재 선택된 조건에 등록된 오답 기록이 없습니다.
+          </p>
+        )}
+        {reportError && <p className="text-red-600">{reportError}</p>}
+        {report && <p className="whitespace-pre-wrap text-gray-800">{report}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

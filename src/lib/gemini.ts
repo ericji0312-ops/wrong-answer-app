@@ -170,3 +170,77 @@ export async function parseWorkbookPdf(
 
   return { problems, rawResponse };
 }
+
+export interface WeaknessReportEntry {
+  unit: string;
+  problemType: string;
+  difficulty: string;
+  reason: string | null;
+  recordedAt: string;
+}
+
+// 문제 분류(gemini-3.6-flash)와 달리, 여러 건의 오답 이유 텍스트에서 공통
+// 패턴을 읽어내고 글로 정리하는 작업이라 추론력이 더 좋은 모델을 쓴다.
+const REPORT_MODEL = "gemini-3.7-flash";
+// REPORT_MODEL이 일시적으로 과부하(503)일 때만 재시도하는 폴백. 문제
+// 분류용 모델과 같은 걸 재사용한다 — 리포트 품질은 조금 낮아지지만 항상
+// 응답은 받을 수 있다.
+const REPORT_FALLBACK_MODEL = "gemini-3.6-flash";
+
+function isServiceUnavailable(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 503) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("503") || message.includes("UNAVAILABLE");
+}
+
+export async function generateWeaknessReport(
+  studentName: string,
+  entries: WeaknessReportEntry[]
+): Promise<string> {
+  const hasAnyReason = entries.some((e) => e.reason && e.reason.trim() !== "");
+
+  const listText = entries
+    .map((e) => {
+      const reasonText = e.reason && e.reason.trim() !== "" ? e.reason.trim() : "(이유 미입력)";
+      const date = new Date(e.recordedAt).toLocaleDateString("ko-KR");
+      return `- ${e.unit} · ${e.problemType} · 난이도 ${e.difficulty} · ${reasonText} · ${date}`;
+    })
+    .join("\n");
+
+  const prompt = `너는 수학 학원 강사를 도와 학생의 오답 기록을 분석하는 조교야.
+아래는 학생 "${studentName}"의 오답 기록 목록이야 (단원 · 세부유형 · 난이도 · 학생이 적은 틀린 이유 · 기록일):
+
+${listText}
+
+이 기록을 바탕으로 다음 세 부분으로 구성된 한국어 리포트를 작성해줘:
+
+1. **취약 유형**: 오답 빈도가 높은 단원/세부유형을 상위 3~5개 정도 꼽고, 각각 몇 건인지 근거를 함께 제시해줘.
+2. **원인 패턴**: 학생이 적은 "틀린 이유" 텍스트들을 읽고, 반복되는 원인(예: 특정 개념 이해 부족, 계산 실수, 문제 해석 오류, 시간 부족 등)을 직접 찾아서 정리해줘. 카테고리는 미리 정해진 게 없으니 실제 텍스트 내용에 근거해서 자유롭게 이름 붙여도 돼.
+3. **보완 방법 제안**: 위 취약 유형과 원인 패턴에 맞춰, 이 학생에게 구체적으로 어떤 것을 보완하면 좋을지 실행 가능한 제안을 해줘.
+
+${hasAnyReason ? "" : "주의: 이 학생은 틀린 이유를 하나도 입력하지 않았어. 2번 항목에서는 원인 패턴을 추측하지 말고, 이유가 기록되지 않아 원인 분석이 제한적이라는 점을 명시해줘."}
+
+과장하지 말고 담백하게, 강사가 바로 읽고 활용할 수 있는 톤으로 써줘.`;
+
+  const contents = [{ role: "user", parts: [{ text: prompt }] }];
+
+  try {
+    // SDK 기본값은 5xx에 대해 지수 백오프로 최대 5회, 수십 초까지 재시도한다.
+    // REPORT_MODEL이 과부하(503)일 때는 같은 모델을 붙잡고 기다리는 대신
+    // 바로 실패시켜서 아래 폴백 모델로 넘어가게 한다.
+    const response = await ai.models.generateContent({
+      model: REPORT_MODEL,
+      contents,
+      config: { httpOptions: { retryOptions: { attempts: 1 } } },
+    });
+    return response.text ?? "";
+  } catch (error) {
+    if (!isServiceUnavailable(error)) throw error;
+    const response = await ai.models.generateContent({
+      model: REPORT_FALLBACK_MODEL,
+      contents,
+    });
+    return response.text ?? "";
+  }
+}

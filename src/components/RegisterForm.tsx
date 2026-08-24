@@ -38,9 +38,11 @@ export default function RegisterForm({
   const [problems, setProblems] = useState<WorkbookProblem[]>([]);
   const [loadingProblems, setLoadingProblems] = useState(false);
   const [wrongNumbers, setWrongNumbers] = useState<Set<number>>(new Set());
+  const [reasons, setReasons] = useState<Map<number, string>>(new Map());
   const [previouslyWrong, setPreviouslyWrong] = useState<PreviouslyWrongProblem[]>([]);
   const [loadingPreviouslyWrong, setLoadingPreviouslyWrong] = useState(false);
   const [retestStillWrongIds, setRetestStillWrongIds] = useState<Set<string>>(new Set());
+  const [retestReasons, setRetestReasons] = useState<Map<string, string>>(new Map());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -108,6 +110,7 @@ export default function RegisterForm({
     setProblems([]);
     setPart("");
     setWrongNumbers(new Set());
+    setReasons(new Map());
     setRegistrationMode("full");
     setSaveSuccess(false);
     if (!workbookId) return;
@@ -144,6 +147,7 @@ export default function RegisterForm({
   // 체크리스트로 보여준다.
   useEffect(() => {
     setRetestStillWrongIds(new Set());
+    setRetestReasons(new Map());
     if (registrationMode !== "retest" || !studentId || !workbookId) {
       setPreviouslyWrong([]);
       return;
@@ -196,6 +200,16 @@ export default function RegisterForm({
       else next.add(problemNumber);
       return next;
     });
+    setReasons((prev) => {
+      const next = new Map(prev);
+      if (next.has(problemNumber)) next.delete(problemNumber);
+      else next.set(problemNumber, "");
+      return next;
+    });
+  }
+
+  function updateReason(problemNumber: number, text: string) {
+    setReasons((prev) => new Map(prev).set(problemNumber, text));
   }
 
   function toggleRetestStillWrong(problemId: string) {
@@ -205,6 +219,16 @@ export default function RegisterForm({
       else next.add(problemId);
       return next;
     });
+    setRetestReasons((prev) => {
+      const next = new Map(prev);
+      if (next.has(problemId)) next.delete(problemId);
+      else next.set(problemId, "");
+      return next;
+    });
+  }
+
+  function updateRetestReason(problemId: string, text: string) {
+    setRetestReasons((prev) => new Map(prev).set(problemId, text));
   }
 
   const canSaveFull = studentId !== "" && workbookId !== "" && rangeValid && roundValid;
@@ -225,10 +249,12 @@ export default function RegisterForm({
           rangeEnd: end,
           wrongProblemNumbers: [...wrongNumbers],
           round: roundNumber,
+          reasons: Object.fromEntries(reasons),
         });
         setRangeStart("");
         setRangeEnd("");
         setWrongNumbers(new Set());
+        setReasons(new Map());
       } else {
         if (!canSaveRetest) return;
         await saveRetestWrongAnswers({
@@ -238,8 +264,10 @@ export default function RegisterForm({
           round: roundNumber,
           attemptedProblemIds: previouslyWrong.map((p) => p.problemId),
           stillWrongProblemIds: [...retestStillWrongIds],
+          reasons: Object.fromEntries(retestReasons),
         });
         setRetestStillWrongIds(new Set());
+        setRetestReasons(new Map());
         const refreshed = await getPreviouslyWrongProblems(studentId, workbookId, part);
         setPreviouslyWrong(refreshed);
       }
@@ -331,6 +359,7 @@ export default function RegisterForm({
             onChange={(e) => {
               setPart(e.target.value);
               setWrongNumbers(new Set());
+              setReasons(new Map());
             }}
             className="border rounded px-2 py-1 w-full"
           >
@@ -446,6 +475,26 @@ export default function RegisterForm({
                   ))}
                 </div>
               )}
+              {wrongNumbers.size > 0 && (
+                <div className="space-y-1 pt-2">
+                  {[...wrongNumbers]
+                    .sort((a, b) => a - b)
+                    .map((num) => (
+                      <div key={num} className="flex items-center gap-2">
+                        <span className="w-10 shrink-0 text-xs font-medium text-red-600">
+                          {num}번
+                        </span>
+                        <input
+                          type="text"
+                          value={reasons.get(num) ?? ""}
+                          onChange={(e) => updateReason(num, e.target.value)}
+                          placeholder="틀린 이유 (선택)"
+                          className="border rounded px-2 py-1 flex-1 text-xs"
+                        />
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -481,6 +530,27 @@ export default function RegisterForm({
                   {p.problemNumber}
                 </button>
               ))}
+            </div>
+          )}
+          {retestStillWrongIds.size > 0 && (
+            <div className="space-y-1 pt-2">
+              {previouslyWrong
+                .filter((p) => retestStillWrongIds.has(p.problemId))
+                .sort((a, b) => a.problemNumber - b.problemNumber)
+                .map((p) => (
+                  <div key={p.problemId} className="flex items-center gap-2">
+                    <span className="w-10 shrink-0 text-xs font-medium text-red-600">
+                      {p.problemNumber}번
+                    </span>
+                    <input
+                      type="text"
+                      value={retestReasons.get(p.problemId) ?? ""}
+                      onChange={(e) => updateRetestReason(p.problemId, e.target.value)}
+                      placeholder="틀린 이유 (선택)"
+                      className="border rounded px-2 py-1 flex-1 text-xs"
+                    />
+                  </div>
+                ))}
             </div>
           )}
         </div>

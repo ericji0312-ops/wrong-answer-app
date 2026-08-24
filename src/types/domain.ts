@@ -23,6 +23,7 @@ export interface WrongAnswer {
   recorded_at: string;
   workbook_problem_id: string | null;
   attempt_session_id: string | null;
+  reason_note: string | null;
 }
 
 export interface UnitTag {
