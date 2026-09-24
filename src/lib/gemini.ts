@@ -75,6 +75,28 @@ ${listSection}
 ${DIFFICULTY_GUIDE}`;
 }
 
+function isServiceUnavailable(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 503) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("503") || message.includes("UNAVAILABLE");
+}
+
+// 문제집 PDF 분석에 쓸 모델을 좋은 순서대로 나열한 것. 앞에서부터 시도하고
+// 과부하(503)면 다음 모델로 넘어간다.
+//
+// 폴백을 하나만 두지 않는 이유: 2026-09-24 실측 결과 3.6/3.7/3.8-flash가
+// "동시에" 503을 냈고, 3.5 계열만 살아 있었다. 어느 모델이 막힐지는 그때그때
+// 달라서(같은 날 몇 분 사이에 3.6이 됐다 안 됐다 했다), 특정 모델 하나를
+// 폴백으로 찍어두면 그 모델까지 같이 막혔을 때 그대로 실패한다. 끝의 lite는
+// 분류 품질이 조금 떨어져도 응답은 받기 위한 최후의 보루다.
+const WORKBOOK_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+];
+
 export async function parseWorkbookPdf(
   fileBuffer: Buffer,
   allowedTags: UnitTag[] = []
@@ -108,24 +130,51 @@ export async function parseWorkbookPdf(
         required: ["part", "problem_number", "unit", "problem_type", "difficulty"],
       };
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { inlineData: { mimeType: "application/pdf", data: fileBuffer.toString("base64") } },
-          { text: prompt },
-        ],
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: { type: Type.ARRAY, items: itemSchema },
+  const contents = [
+    {
+      role: "user",
+      parts: [
+        { inlineData: { mimeType: "application/pdf", data: fileBuffer.toString("base64") } },
+        { text: prompt },
+      ],
     },
-  });
+  ];
+  const config = {
+    responseMimeType: "application/json",
+    responseSchema: { type: Type.ARRAY, items: itemSchema },
+  };
+
+  // 각 모델은 attempts: 1로 한 번만 때린다. SDK 기본 재시도(5xx에 최대 5회
+  // 지수 백오프)를 그대로 두면 이미 막힌 모델 하나를 붙잡고 수십 초를 버리는데,
+  // PDF 분석 자체가 60초 이상 걸리는 작업이라 그러다 maxDuration(180초)을 넘겨
+  // 함수가 통째로 끊긴다. 503은 즉시 돌아오므로 다음 모델로 빨리 넘어가는 편이
+  // 전체 성공률이 훨씬 높다.
+  let response;
+  let lastError: unknown;
+  for (const model of WORKBOOK_MODELS) {
+    try {
+      response = await ai.models.generateContent({
+        model,
+        contents,
+        config: { ...config, httpOptions: { retryOptions: { attempts: 1 } } },
+      });
+      break;
+    } catch (error) {
+      // 503(과부하)이 아니라면 다른 모델로 바꿔도 결과가 같을 문제(잘못된 PDF,
+      // API 키, 스키마 등)이므로 그대로 올려보낸다.
+      if (!isServiceUnavailable(error)) throw error;
+      lastError = error;
+    }
+  }
+  if (!response) {
+    console.error("parseWorkbookPdf: all models unavailable", lastError);
+    throw new Error("503 모든 분석 모델이 과부하 상태입니다.");
+  }
 
   const rawResponse = response.text ?? "";
+  if (rawResponse.trim() === "") {
+    throw new Error("AI가 빈 응답을 반환했습니다.");
+  }
   const parsed = JSON.parse(rawResponse) as Array<Record<string, unknown>>;
 
   const partOrder = new Map<string, number>();
@@ -186,13 +235,6 @@ const REPORT_MODEL = "gemini-3.7-flash";
 // 분류용 모델과 같은 걸 재사용한다 — 리포트 품질은 조금 낮아지지만 항상
 // 응답은 받을 수 있다.
 const REPORT_FALLBACK_MODEL = "gemini-3.6-flash";
-
-function isServiceUnavailable(error: unknown): boolean {
-  const status = (error as { status?: number } | null)?.status;
-  if (status === 503) return true;
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("503") || message.includes("UNAVAILABLE");
-}
 
 export async function generateWeaknessReport(
   studentName: string,

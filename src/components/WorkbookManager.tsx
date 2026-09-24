@@ -125,8 +125,13 @@ export default function WorkbookManager({
 
     setParsing(true);
     try {
-      const { problems: parsed } = await parseWorkbookPdfFromStorage(subjectId, storagePath);
-      if (parsed.length === 0) {
+      const { problems: parsed, error } = await parseWorkbookPdfFromStorage(
+        subjectId,
+        storagePath
+      );
+      if (error) {
+        setParseError(error);
+      } else if (parsed.length === 0) {
         setParseError("PDF에서 문제를 인식하지 못했습니다.");
       } else {
         setDraft(parsed);

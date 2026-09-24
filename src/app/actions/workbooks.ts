@@ -107,10 +107,14 @@ export async function getWorkbooksWithMultipleRounds(
 // 경로만 받아 서버 쪽에서 내려받는다. Vercel 서버리스 함수는 요청 본문이
 // 약 4.5MB를 넘으면 플랫폼 레벨에서 413으로 막아버려서, 스캔본 같은 큰
 // PDF를 서버 액션에 직접(FormData로) 실어 보낼 수 없기 때문이다.
+//
+// 실패 시 throw 대신 { error }를 반환한다 — 아래 saveWorkbookProblems와 같은
+// 이유로, 프로덕션에서는 throw한 메시지가 클라이언트에 그대로 전달되지 않아
+// 사용자가 "AI가 혼잡해서 실패"인지 "PDF가 잘못됨"인지 구분할 수 없다.
 export async function parseWorkbookPdfFromStorage(
   subjectId: string,
   storagePath: string
-): Promise<{ problems: ParsedWorkbookProblem[] }> {
+): Promise<{ problems: ParsedWorkbookProblem[]; error?: string }> {
   const {
     data: { publicUrl },
   } = supabase.storage.from(WORKBOOK_PDF_BUCKET).getPublicUrl(storagePath);
@@ -118,7 +122,7 @@ export async function parseWorkbookPdfFromStorage(
   try {
     const fileResponse = await fetch(publicUrl);
     if (!fileResponse.ok) {
-      throw new Error("업로드된 PDF를 불러오지 못했습니다.");
+      return { problems: [], error: "업로드된 PDF를 불러오지 못했습니다. 다시 업로드해주세요." };
     }
     const buffer = Buffer.from(await fileResponse.arrayBuffer());
 
@@ -127,7 +131,15 @@ export async function parseWorkbookPdfFromStorage(
     return { problems };
   } catch (error) {
     console.error("parseWorkbookPdf failed", error);
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("503") || message.includes("UNAVAILABLE")) {
+      return {
+        problems: [],
+        error:
+          "AI 서버가 일시적으로 혼잡합니다(503). 잠시 후 다시 시도해주세요.",
+      };
+    }
+    return { problems: [], error: "PDF 분석 중 오류가 발생했습니다." };
   } finally {
     await supabase.storage.from(WORKBOOK_PDF_BUCKET).remove([storagePath]);
   }
