@@ -132,11 +132,15 @@ export async function parseWorkbookPdfFromStorage(
   } catch (error) {
     console.error("parseWorkbookPdf failed", error);
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("503") || message.includes("UNAVAILABLE")) {
+    if (
+      message.includes("503") ||
+      message.includes("UNAVAILABLE") ||
+      message.includes("분석 가능한 AI 모델을 찾지 못했습니다")
+    ) {
       return {
         problems: [],
         error:
-          "AI 서버가 일시적으로 혼잡합니다(503). 잠시 후 다시 시도해주세요.",
+          "AI 서버가 일시적으로 혼잡하거나 응답이 느립니다. 잠시 후 다시 시도해주세요.",
       };
     }
     return { problems: [], error: "PDF 분석 중 오류가 발생했습니다." };

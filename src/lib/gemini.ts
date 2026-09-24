@@ -82,6 +82,18 @@ function isServiceUnavailable(error: unknown): boolean {
   return message.includes("503") || message.includes("UNAVAILABLE");
 }
 
+// isServiceUnavailable(빠른 503 실패)과 별개로, 모델이 에러 없이 그냥
+// 느려서(대용량 스캔본 등) httpOptions.timeout에 걸려 fetch가 abort된
+// 경우도 같은 "이 모델은 포기하고 다음으로" 처리 대상이다. undici/fetch는
+// 이때 name이 "AbortError"인 에러를 던진다.
+function isTransientFailure(error: unknown): boolean {
+  if (isServiceUnavailable(error)) return true;
+  const name = (error as { name?: string } | null)?.name;
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /aborted|timed? ?out/i.test(message);
+}
+
 // 문제집 PDF 분석에 쓸 모델을 좋은 순서대로 나열한 것. 앞에서부터 시도하고
 // 과부하(503)면 다음 모델로 넘어간다.
 //
@@ -149,26 +161,49 @@ export async function parseWorkbookPdf(
   // PDF 분석 자체가 60초 이상 걸리는 작업이라 그러다 maxDuration(180초)을 넘겨
   // 함수가 통째로 끊긴다. 503은 즉시 돌아오므로 다음 모델로 빨리 넘어가는 편이
   // 전체 성공률이 훨씬 높다.
+  //
+  // 여기에 더해 모델 호출 루프 전체에 시간 예산을 둔다. 2026-09-24 실제
+  // 프로덕션에서, 첫 모델이 503으로 빠르게 실패하지 않고 대용량 스캔본을
+  // "에러 없이 그냥 오래" 처리하다가 maxDuration(180초)에 걸려 함수가
+  // 플랫폼에 의해 강제 종료되는 일이 있었다 — 이 경우 아래 catch도,
+  // saveWorkbookProblems 쪽의 사용자 친화적 에러 메시지도 전혀 실행되지
+  // 못하고 그냥 504만 떴다. 그래서 모델 하나가 예산을 전부 쓰지 못하게
+  // httpOptions.timeout으로 상한을 걸고, 남은 예산 안에서만 다음 모델로
+  // 넘어간다.
+  const LOOP_BUDGET_MS = 150_000; // maxDuration(180초) 중 스토리지 다운로드·
+  // 태그 조회·JSON 파싱 등 나머지 작업 몫으로 30초를 남겨둔다.
+  const MAX_ATTEMPT_MS = 90_000; // 모델 하나가 예산을 혼자 다 쓰지 않도록 상한.
+  const MIN_ATTEMPT_MS = 15_000; // 이만큼도 못 주면 시도할 가치가 없다고 보고
+  // 남은 모델은 건너뛰고 바로 실패 처리한다.
+
+  const loopStart = Date.now();
   let response;
   let lastError: unknown;
   for (const model of WORKBOOK_MODELS) {
+    const remaining = LOOP_BUDGET_MS - (Date.now() - loopStart);
+    if (remaining < MIN_ATTEMPT_MS) break;
+    const attemptTimeout = Math.min(MAX_ATTEMPT_MS, remaining);
     try {
       response = await ai.models.generateContent({
         model,
         contents,
-        config: { ...config, httpOptions: { retryOptions: { attempts: 1 } } },
+        config: {
+          ...config,
+          httpOptions: { timeout: attemptTimeout, retryOptions: { attempts: 1 } },
+        },
       });
       break;
     } catch (error) {
-      // 503(과부하)이 아니라면 다른 모델로 바꿔도 결과가 같을 문제(잘못된 PDF,
-      // API 키, 스키마 등)이므로 그대로 올려보낸다.
-      if (!isServiceUnavailable(error)) throw error;
+      // 503(과부하)이나 방금 건 타임아웃이 아니라면 다른 모델로 바꿔도
+      // 결과가 같을 문제(잘못된 PDF, API 키, 스키마 등)이므로 그대로
+      // 올려보낸다.
+      if (!isTransientFailure(error)) throw error;
       lastError = error;
     }
   }
   if (!response) {
-    console.error("parseWorkbookPdf: all models unavailable", lastError);
-    throw new Error("503 모든 분석 모델이 과부하 상태입니다.");
+    console.error("parseWorkbookPdf: all models unavailable/timed out", lastError);
+    throw new Error("분석 가능한 AI 모델을 찾지 못했습니다(과부하 또는 시간 초과).");
   }
 
   const rawResponse = response.text ?? "";
